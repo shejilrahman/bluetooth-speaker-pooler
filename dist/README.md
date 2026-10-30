@@ -19,8 +19,11 @@ VPN on.
    - downloads yt-dlp (and Deno, used by yt-dlp for YouTube) into `bin\`
    - installs VLC through winget if it is missing (approve if asked)
    - adds a shortcut to the Startup folder, so it runs after every login
-4. A console window stays open with the addresses. Open `http://localhost:3010`
-   on the host PC, expand **Share** and show the QR code to the room.
+4. A console window stays open. Within seconds it prints the room's link on
+   the online hub, for example `https://<hub>/r/LAPTOP-NAME/`. Open that link
+   on any device, expand **Host controls**, enter the PIN `1234` and change
+   it. Nothing needs to be opened on the speaker PC itself; its own page
+   `http://localhost:3010` keeps working as the Wi-Fi fallback.
 
 Windows SmartScreen may warn "unknown publisher" the first time. Click
 **More info -> Run anyway**. The exe is just Node.js with this program inside.
@@ -87,12 +90,27 @@ outward. Searching and playing still happen on the speaker PC.
                                       /r/Hall/                room "Hall"
 ```
 
-1. Deploy the `hub` folder once: see `hub/README.md`. Quickest is Render's
-   Blueprint flow with the `render.yaml` in this repo (Render free tier, any
-   Docker host, or a small VPS).
-2. On each speaker PC: queue page → Host controls → **Online hub** → enter
-   `wss://<hub-host>/agent`, a room name and a secret key → Save & connect.
-3. Share the hub address. The room picker lists every room that is online.
+The exe has a hub built in (`hub-default.json` at build time, currently
+`wss://bluetooth-speaker-pooler.onrender.com/agent`). On its first start a
+speaker PC joins that hub by itself as a room named after the PC, with a
+generated key, and prints the room link. From then on the host does
+everything from the room page on any device:
+
+- **Host controls → Host PIN**: change the default `1234` first.
+- **Host controls → Online hub**: rename the room (for example `Office`), set
+  your own key, point the PC at another hub, or leave the address empty to
+  switch the hub off. A blank key keeps the current one. Renaming moves the
+  room; the page follows to the new link.
+
+Everything is stored in `config.json` next to the exe (`hubUrl`, `room`,
+`roomKey`, `adminPin`). `"hubUrl": ""` means hub off; a missing `hubUrl`
+means the built-in default. Environment variables `HUB_URL`, `ROOM`,
+`ROOM_KEY` override the file. Copy `config.json` to a new PC to move a room.
+Never commit it: the key is what stops another PC from taking the room name.
+
+To run your own hub, deploy the `hub` folder (see `hub/README.md`; the
+`render.yaml` in this repo makes Render one click) and either rebuild with
+`BUILD_HUB_URL=wss://your-hub/agent node build.js` or set `hubUrl` on each PC.
 
 The LAN address keeps working at the same time.
 
@@ -141,15 +159,19 @@ On the queue page, expand **Host controls**, enter the PIN (default `1234`).
 You get Play / Pause / Skip / Clear queue / Volume, ⬆ on a song to play it
 next, ✕ to remove any song, ↻ to replay from history.
 
-Change the PIN by starting with the `ADMIN_PIN` environment variable, for
-example a shortcut with `cmd /c set ADMIN_PIN=4321&& SpeakerQueue.exe`.
+Change the PIN under **Host controls → Host PIN** (4 to 8 digits). It is
+stored as `adminPin` in `config.json`. Other devices must unlock again with
+the new PIN (the browser-mode `/player` page too). Starting with the
+`ADMIN_PIN` environment variable overrides and locks the PIN, so the page
+cannot change it. Bluetooth **Disconnect** needs the PIN; **Connect** does not.
 
 ## Running from source instead of the exe
 
 Needs Node.js 18+, VLC, and yt-dlp (`python -m pip install --user -U yt-dlp`,
 or let the server download `bin\yt-dlp.exe` itself). Then `start.bat` or
 `node server.js`. Build the exe with `build.bat` (needs internet once for the
-`postject` helper).
+`postject` helper). `BUILD_HUB_URL` overrides the hub address embedded from
+`hub-default.json`.
 
 ## Files
 
@@ -161,6 +183,9 @@ or let the server download `bin\yt-dlp.exe` itself). Then `start.bat` or
 | `public/player.html` | Browser-mode player page (fallback when VLC is unavailable) |
 | `public/style.css` | Styling for the player page |
 | `bluetooth.ps1` | Windows Bluetooth helper (list / connect / disconnect / radio on), embedded in the exe |
+| `hub-default.json` | The hub address built into the exe (URL only, never a key) |
+| `config.json` | Per-PC settings written by the app: hub, room, room key, host PIN. Next to the exe; never commit it |
+| `hub/` | The online hub (relay site) and its own README |
 | `enable-autologin.bat` | One-time helper to make Windows sign in automatically |
 | `build.js` / `build.bat` | Produce `dist\SpeakerQueue.exe` |
 | `start.bat` | Run from source (adds firewall rule, stops old copies) |
@@ -184,9 +209,9 @@ to skip setup steps.
 | POST | `/api/search` | `{q}` song name or link, returns up to 8 results | anyone |
 | POST | `/api/add` | `{url, user}` (url may be a bare video id) | anyone |
 | POST | `/api/vote` | `{id, user}` toggles your vote | anyone |
-| POST | `/api/bt` | `{action}` connect, disconnect or refresh the Bluetooth speaker | anyone |
+| POST | `/api/bt` | `{action, pin?}` connect, disconnect or refresh the Bluetooth speaker | anyone; disconnect needs the host PIN |
 | POST | `/api/remove` | `{id, user, pin?}` | owner or host |
-| POST | `/api/admin` | `{pin, action, id?, value?, name?}` actions: `check skip pause play volume bump unbump clear replay speaker autoconnect` | host |
+| POST | `/api/admin` | `{pin, action, id?, value?, name?}` actions: `check skip pause play volume bump unbump clear replay speaker autoconnect hub pin` | host |
 | POST | `/api/player/status` | `{pin, position, duration, paused, volume}` | browser mode only |
 | POST | `/api/player/ended` | `{pin, id, reason}` | browser mode only |
 

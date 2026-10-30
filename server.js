@@ -40,7 +40,31 @@ const IS_WIN = process.platform === 'win32';
 const ARGS = process.argv.slice(1);
 
 const PORT = Number(process.env.PORT) || 3010;
-const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
+
+// Optional config.json next to the exe. Fields:
+//   hubUrl   "wss://.../agent"; "" turns the hub off; missing = the hub built into this exe
+//   room, roomKey   the room on the hub (roomKey is a secret: it stops another PC taking the name)
+//   roomAuto true   room name was generated from this PC's name on first run
+//   adminPin        host PIN set from the page (ADMIN_PIN env var overrides it)
+const CONFIG_FILE = path.join(APP_DIR, 'config.json');
+let config = {};
+try { config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (_) { /* none yet */ }
+function saveConfig() {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+// The hub address compiled into the exe (build.js embeds hub-default.json). Never a key.
+function loadHubDefault() {
+  try {
+    const raw = sea ? sea.getAsset('hub-default.json', 'utf8') : fs.readFileSync(path.join(__dirname, 'hub-default.json'), 'utf8');
+    const u = String(JSON.parse(raw).hubUrl || '').trim();
+    return /^wss?:\/\//.test(u) ? u : '';
+  } catch (_) { return ''; } // older exe without the asset, or file missing when run from source
+}
+const DEFAULT_HUB_URL = loadHubDefault();
+
+let ADMIN_PIN = process.env.ADMIN_PIN || (typeof config.adminPin === 'string' && config.adminPin) || '1234';
+const PIN_FIXED = Boolean(process.env.ADMIN_PIN); // set by env: cannot be changed from the page
 const MAX_PENDING_PER_USER = Number(process.env.MAX_PENDING_PER_USER) || 3;
 const DATA_FILE = path.join(APP_DIR, 'queue.json');
 const PUBLIC_DIR = path.join(APP_DIR, 'public');
@@ -50,15 +74,6 @@ const VLC_PASS = crypto.randomBytes(8).toString('hex');
 const STREAM_URL_TTL = 4 * 60 * 60 * 1000; // resolved googlevideo URLs stay valid ~6 h
 const FIREWALL_RULE = 'BT Speaker Pooler';
 const APP_NAME = 'Speaker Queue';
-const CONFIG_FILE = path.join(APP_DIR, 'config.json');
-
-// Optional config.json next to the exe: { "hubUrl": "wss://.../agent", "room": "Office", "roomKey": "secret" }
-let config = {};
-try { config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (_) { /* none yet */ }
-function saveConfig() {
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-}
-
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -96,6 +111,7 @@ const state = {
     room: '',
     publicUrl: '',
     lastError: '',
+    roomAuto: false,  // room name was generated from this PC's name
   },
 };
 
@@ -658,6 +674,7 @@ function publicState() {
     playback: state.playback,
     bluetooth: state.bluetooth,
     hub: state.hub,
+    pinFixed: PIN_FIXED,
     maxPendingPerUser: MAX_PENDING_PER_USER,
     serverTime: Date.now(),
   };
@@ -691,18 +708,41 @@ const hub = {
 
   settings() {
     return {
-      url: process.env.HUB_URL || config.hubUrl || '',
+      // env > config.json > the hub built into this exe. An explicit "" in config.json means off.
+      url: process.env.HUB_URL || (typeof config.hubUrl === 'string' ? config.hubUrl : DEFAULT_HUB_URL),
       room: process.env.ROOM || config.room || '',
       key: process.env.ROOM_KEY || config.roomKey || '',
     };
+  },
+
+  // First run with a hub address but no room: name the room after this PC and make a key,
+  // so the host never has to touch this PC's local page. Skipped on non-Windows unless
+  // HUB_URL is set explicitly (a copy deployed to a server by mistake must not register rooms).
+  ensureRoom() {
+    const s = this.settings();
+    if (!s.url || s.room) return;
+    if (!IS_WIN && !process.env.HUB_URL) return;
+    config.room = roomNameFromHost();
+    if (!s.key) config.roomKey = crypto.randomBytes(12).toString('base64url');
+    config.roomAuto = true;
+    saveConfig();
+    console.log(`[hub] first run: joining the hub as room "${config.room}" (rename it under Host controls -> Online hub)`);
   },
 
   configure(url, room, key) {
     config.hubUrl = url;
     config.room = room;
     config.roomKey = key;
+    delete config.roomAuto;
     saveConfig();
     state.hub.lastError = '';
+    this.renamed = false;
+    // This call may itself have arrived through the hub: let the reply leave before the socket closes.
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.reconnect(), 500);
+  },
+
+  reconnect() {
     if (this.ws) { try { this.ws.close(); } catch (_) { /* ignore */ } }
     clearTimeout(this.timer);
     this.backoff = 2000;
@@ -714,6 +754,7 @@ const hub = {
     state.hub.configured = Boolean(s.url && s.room);
     state.hub.url = s.url;
     state.hub.room = s.room;
+    state.hub.roomAuto = Boolean(config.roomAuto);
     if (!state.hub.configured || this.stopped) { broadcastState(); return; }
     if (typeof WebSocket === 'undefined') {
       state.hub.lastError = 'Node 22 or newer is needed for the hub connection.';
@@ -746,6 +787,19 @@ const hub = {
       state.hub.connected = false;
       state.hub.publicUrl = '';
       if (was) console.log('[hub] disconnected' + (ev && ev.reason ? ': ' + ev.reason : ''));
+      if (ev && ev.code === 4001 && config.roomAuto && !this.renamed) {
+        // The auto-generated name is already owned by another PC: add a short suffix, once per run.
+        this.renamed = true;
+        const base = String(config.room).replace(/-[A-Z0-9]{3}$/, '').slice(0, 36);
+        config.room = base + '-' + crypto.randomBytes(2).toString('hex').slice(0, 3).toUpperCase();
+        saveConfig();
+        state.hub.lastError = '';
+        console.log(`[hub] room name is taken, trying "${config.room}" instead`);
+        broadcastState();
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.connect(), 1000);
+        return;
+      }
       const wait = this.backoff;
       if (!state.hub.lastError || /retry/.test(state.hub.lastError)) {
         state.hub.lastError = (ev && ev.reason && ev.code !== 1006 ? ev.reason : 'cannot reach the hub (no internet, wrong address, or the hub is waking up)')
@@ -765,6 +819,13 @@ const hub = {
       state.hub.publicUrl = m.publicUrl || '';
       state.hub.lastError = '';
       console.log('[hub] connected, room page: ' + state.hub.publicUrl);
+      if (this.announced !== state.hub.publicUrl) {
+        this.announced = state.hub.publicUrl;
+        console.log('');
+        console.log(`  Manage it from any device: ${state.hub.publicUrl}  ->  Host controls, PIN ${ADMIN_PIN}`);
+        console.log('  Anyone with that link can add songs.' + (config.roomAuto ? ' The room is named after this PC; rename it under Online hub.' : ''));
+        console.log('');
+      }
       broadcastState();
     } else if (m.type === 'error') {
       state.hub.lastError = m.error || 'hub error';
@@ -885,6 +946,14 @@ function isAdmin(body) {
   return typeof body.pin === 'string' && body.pin === ADMIN_PIN;
 }
 
+const ROOM_RE = /^[\w][\w \-]{0,39}$/; // same rule as the hub
+
+// Room name from this PC's name: letters, digits, space, - or _, max 36 (leaves room for a suffix).
+function roomNameFromHost() {
+  const n = os.hostname().replace(/\.local$/i, '').replace(/[^\w \-]+/g, '-').replace(/^[^\w]+/, '').slice(0, 36).trim();
+  return n || 'Speaker-' + crypto.randomBytes(2).toString('hex').toUpperCase();
+}
+
 function cleanName(name) {
   const n = String(name || '').trim().slice(0, 24);
   return n || 'Anonymous';
@@ -902,11 +971,14 @@ function readStatic(name, cb) {
   fs.readFile(path.join(PUBLIC_DIR, name), cb);
 }
 
+const PRIVATE_ASSETS = new Set(['bluetooth.ps1', 'hub-default.json']); // embedded, but not web pages
+
 function serveStatic(req, res, pathname) {
   if (pathname === '/') pathname = '/index.html';
   if (pathname === '/player') pathname = '/player.html';
   const name = path.posix.basename(pathname);
   if (!/^[\w.-]+$/.test(name) || pathname !== '/' + name) return json(res, 404, { error: 'not found' });
+  if (PRIVATE_ASSETS.has(name)) return json(res, 404, { error: 'not found' });
   readStatic(name, (err, data) => {
     if (err) return json(res, 404, { error: 'not found' });
     res.writeHead(200, {
@@ -1045,7 +1117,10 @@ async function handleApi(req, res, pathname, presetBody) {
     case '/api/bt': {
       try {
         if (body.action === 'connect') return json(res, 200, { ok: true, result: await bt.connect() });
-        if (body.action === 'disconnect') return json(res, 200, { ok: true, result: await bt.disconnect() });
+        if (body.action === 'disconnect') {
+          if (!isAdmin(body)) return json(res, 403, { error: 'Only the host can disconnect the speaker (PIN needed).' });
+          return json(res, 200, { ok: true, result: await bt.disconnect() });
+        }
         if (body.action === 'refresh') { await bt.refresh(); return json(res, 200, { ok: true, bluetooth: state.bluetooth }); }
         return json(res, 400, { error: 'unknown action' });
       } catch (e) {
@@ -1077,10 +1152,21 @@ async function handleApi(req, res, pathname, presetBody) {
           case 'hub': {
             const url = String(body.url || '').trim();
             const room = String(body.room || '').trim().slice(0, 40);
-            const key = String(body.key || '').trim();
+            const key = String(body.key || '').trim() || hub.settings().key; // blank keeps the current key
             if (url && !/^wss?:\/\//.test(url)) return json(res, 400, { error: 'Hub URL must start with ws:// or wss://' });
             if (url && !room) return json(res, 400, { error: 'Room name required' });
+            if (url && !ROOM_RE.test(room)) return json(res, 400, { error: 'Room name: letters, numbers, spaces, - or _ (max 40).' });
             hub.configure(url, room, key);
+            return json(res, 200, { ok: true, url, room });
+          }
+          case 'pin': {
+            if (PIN_FIXED) return json(res, 409, { error: 'The PIN is fixed by the ADMIN_PIN environment variable on the speaker PC.' });
+            const newPin = String(body.newPin || '').trim();
+            if (!/^\d{4,8}$/.test(newPin)) return json(res, 400, { error: 'PIN must be 4 to 8 digits.' });
+            ADMIN_PIN = newPin;
+            config.adminPin = newPin;
+            saveConfig();
+            console.log(`  Host PIN changed from the page. New PIN: ${newPin}`);
             return json(res, 200, { ok: true });
           }
           case 'skip':
@@ -1335,7 +1421,7 @@ function printBanner() {
   console.log('');
   console.log('  ' + APP_NAME + ' is running');
   console.log('  ---------------------------');
-  console.log(`  Host PIN           : ${ADMIN_PIN}  (set ADMIN_PIN env var to change)`);
+  console.log(`  Host PIN           : ${ADMIN_PIN}  ${PIN_FIXED ? '(fixed by the ADMIN_PIN env var)' : '(change it on the page: Host controls -> Change PIN)'}`);
   console.log(`  Playback engine    : ${engine === vlc ? 'VLC (audio only, yt-dlp ' + ytdlp.version + (denoPath ? ', deno' : '') + ')' : 'browser (open /player here)'}`);
   console.log(`  Queue page here    : http://localhost:${PORT}/`);
   console.log('  Share with others  :');
@@ -1346,19 +1432,20 @@ function printBanner() {
   else console.log('  Keep the /player tab open on this PC; its audio goes to the Bluetooth speaker.');
   if (state.bluetooth.available) console.log(`  Bluetooth speaker  : ${state.bluetooth.speaker || '(none chosen yet, host picks it on the page)'}${state.bluetooth.autoConnect ? ', auto-connect on' : ''}`);
   const hs = hub.settings();
-  if (hs.url) console.log(`  Online hub         : ${hs.url}  room "${hs.room}" (connecting...)`);
-  else console.log('  Online hub         : not set (Host controls -> Online hub, or config.json)');
+  if (hs.url) console.log(`  Online hub         : ${hs.url}  room "${hs.room}"${config.roomAuto ? ' (named after this PC)' : ''} (connecting... the room link is printed when connected)`);
+  else console.log('  Online hub         : off ("hubUrl": "" in config.json). Turn it on under Host controls -> Online hub.');
   console.log('  Open the Share section on the queue page to show a QR code to the room.');
   console.log('');
 }
 
 async function boot() {
   if (ARGS.includes('--help') || ARGS.includes('-h')) {
-    console.log(`${APP_NAME}\n  --no-autostart       do not add a Startup shortcut\n  --remove-autostart   remove the Startup shortcut and exit\n  env: PORT ADMIN_PIN PLAYER=vlc|browser MAX_PENDING_PER_USER VLC_PATH YTDLP NO_FIREWALL NO_DENO NO_VLC_INSTALL NO_AUTOSTART\n       HUB_URL ROOM ROOM_KEY (or config.json: hubUrl, room, roomKey)`);
+    console.log(`${APP_NAME}\n  --no-autostart       do not add a Startup shortcut\n  --remove-autostart   remove the Startup shortcut and exit\n  env: PORT ADMIN_PIN PLAYER=vlc|browser MAX_PENDING_PER_USER VLC_PATH YTDLP NO_FIREWALL NO_DENO NO_VLC_INSTALL NO_AUTOSTART\n       HUB_URL ROOM ROOM_KEY (or config.json: hubUrl, room, roomKey, roomAuto, adminPin)`);
     process.exit(0);
   }
   loadState();
   sortQueue();
+  hub.ensureRoom();
 
   // Serve the page right away so the host sees setup progress.
   const server = http.createServer((req, res) => {

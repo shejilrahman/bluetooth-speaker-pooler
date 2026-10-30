@@ -145,7 +145,7 @@
   <details class="card host">
     <summary id="hostSummary">Host controls (PIN)</summary>
     <div id="hostLocked" class="row">
-      <input id="pin" type="password" placeholder="Host PIN" style="max-width:180px">
+      <input id="pin" type="password" inputmode="numeric" placeholder="Host PIN" style="max-width:180px">
       <button id="unlockBtn" class="ghost">Unlock</button>
     </div>
     <div id="pinMsg" class="msg"></div>
@@ -163,6 +163,14 @@
         <span id="volVal" class="hint">100</span>
       </div>
       <div class="hint" id="hostHint" style="margin-top:8px"></div>
+      <div id="hostPinBox" style="margin-top:12px;border-top:1px solid #2a2f3d;padding-top:10px">
+        <div class="label">Host PIN</div>
+        <div class="row">
+          <input id="newPin" type="password" inputmode="numeric" maxlength="8" placeholder="New PIN (4 to 8 digits)" autocomplete="new-password" style="max-width:220px">
+          <button id="pinSave" class="ghost">Change PIN</button>
+        </div>
+        <div id="pinChangeMsg" class="msg"></div>
+      </div>
       <div id="hostBt" style="display:none;margin-top:12px;border-top:1px solid #2a2f3d;padding-top:10px">
         <div class="label">Speaker settings</div>
         <div class="row">
@@ -173,15 +181,16 @@
         <div class="hint" style="margin-top:6px">The speaker must be paired with the host PC once (Windows Settings → Bluetooth). After that, anyone can press Connect here.</div>
       </div>
       <div id="hostHub" style="margin-top:12px;border-top:1px solid #2a2f3d;padding-top:10px">
-        <div class="label">Online hub (optional)</div>
-        <div class="hint">Lets people use this queue from anywhere, not only this Wi-Fi, and pick this room on the hub site. Needs a hub deployed somewhere (see README).</div>
+        <div class="label">Online hub</div>
+        <div class="hint">Makes this queue reachable from anywhere through the hub site, as a room. Preset to the shared hub: rename the room, set your own key, or point it at another hub. Leave the address empty to switch the hub off.</div>
         <div class="row" style="margin-top:8px"><input id="hubUrl" type="text" placeholder="wss://your-hub.example.com/agent" autocomplete="off"></div>
         <div class="row">
           <input id="hubRoom" type="text" placeholder="Room name, e.g. Office" maxlength="40" autocomplete="off">
-          <input id="hubKey" type="password" placeholder="Room key (secret)" autocomplete="off">
+          <input id="hubKey" type="password" placeholder="Room key (blank keeps the current one)" autocomplete="off">
           <button id="hubSave" class="ghost">Save & connect</button>
         </div>
         <div id="hubStatus" class="msg"></div>
+        <div id="hubHint" class="hint" style="margin-top:6px"></div>
       </div>
     </div>
   </details>
@@ -317,7 +326,10 @@
       $('hostLocked').style.display = 'none'; $('hostOpen').style.display = ''; $('hostSummary').textContent = 'Host controls (unlocked)';
       setMsg($('pinMsg'), '');
       render();
-    } catch (e) { setMsg($('pinMsg'), e.message, 'err'); }
+    } catch (e) {
+      if (localStorage.getItem('hostPin') === p) localStorage.removeItem('hostPin'); // stale after a PIN change
+      setMsg($('pinMsg'), e.message, 'err');
+    }
   }
   $('unlockBtn').onclick = () => unlock($('pin').value);
   $('pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') unlock($('pin').value); });
@@ -329,6 +341,20 @@
   $('clearBtn').onclick = () => { if (confirm('Remove every song from the queue?')) admin('clear'); };
   let volTimer;
   $('volume').oninput = (e) => { $('volVal').textContent = e.target.value; clearTimeout(volTimer); volTimer = setTimeout(() => admin('volume', { value: Number(e.target.value) }), 150); };
+  $('pinSave').onclick = async () => {
+    const newPin = $('newPin').value.trim();
+    if (!/^\d{4,8}$/.test(newPin)) return setMsg($('pinChangeMsg'), 'PIN must be 4 to 8 digits.', 'err');
+    try {
+      await api('api/admin', { pin, action: 'pin', newPin });
+      pin = newPin; localStorage.setItem('hostPin', newPin); $('newPin').value = '';
+      setMsg($('pinChangeMsg'), 'PIN changed. Other devices must unlock again with the new PIN.', 'ok');
+    } catch (e) { setMsg($('pinChangeMsg'), e.message, 'err'); }
+  };
+  $('newPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pinSave').onclick(); });
+  function renderPinBox() {
+    $('hostPinBox').style.display = state.pinFixed ? 'none' : '';
+    if (pin === '1234' && !$('pinChangeMsg').textContent) setMsg($('pinChangeMsg'), 'The default PIN 1234 is in use. Anyone who guesses it can control the speaker: change it.', 'err');
+  }
 
   // ---- bluetooth ------------------------------------------------------------
   async function btAction(action, btn) {
@@ -336,7 +362,7 @@
     if (btn) btn.disabled = true;
     setMsg(msg, '<span class="spin"></span>' + (action === 'connect' ? 'Connecting the speaker… (takes up to 15 s)' : 'Disconnecting…'));
     try {
-      const j = await api('api/bt', { action });
+      const j = await api('api/bt', { action, pin });
       if (action === 'connect') setMsg(msg, j.result && j.result.note ? '✅ Speaker is already connected.' : '✅ Speaker connected. Music continues in a few seconds.', 'ok');
       else setMsg(msg, 'Speaker disconnected. Press Connect to take it back.', 'ok');
     } catch (e) {
@@ -351,10 +377,30 @@
   $('autoConnect').onchange = (e) => admin('autoconnect', { value: e.target.checked });
 
   // ---- online hub -----------------------------------------------------------
+  let movedTo = '';      // set when this page is served by the hub and the room was renamed
+  let hubMsgHold = 0;    // keep a save message on screen despite state updates
   $('hubSave').onclick = async () => {
+    const url = $('hubUrl').value.trim(), room = $('hubRoom').value.trim();
     try {
-      await api('api/admin', { pin, action: 'hub', url: $('hubUrl').value.trim(), room: $('hubRoom').value.trim(), key: $('hubKey').value });
-      setMsg($('hubStatus'), $('hubUrl').value.trim() ? 'Saved. Connecting…' : 'Hub disabled.', 'ok');
+      await api('api/admin', { pin, action: 'hub', url, room, key: $('hubKey').value });
+      $('hubKey').value = '';
+      hubMsgHold = Date.now() + 8000;
+      const viaHub = location.pathname.match(/^\/r\/([^/]+)\//);
+      if (!url) {
+        setMsg($('hubStatus'), viaHub ? 'Hub switched off. This page will stop working; use the PC\'s own Wi-Fi address from now on.' : 'Hub switched off. Only this Wi-Fi can reach the queue.', 'ok');
+      } else if (viaHub && decodeURIComponent(viaHub[1]).toLowerCase() !== room.toLowerCase()) {
+        let host = ''; try { host = new URL(url).host; } catch (_) { /* validated by the server */ }
+        const link = (host === location.host ? location.origin : 'https://' + host) + '/r/' + encodeURIComponent(room) + '/';
+        if (host === location.host) {
+          movedTo = link;
+          setMsg($('hubStatus'), `Saved. The room is moving to <a href="${esc(link)}">${esc(link)}</a>, taking you there…`, 'ok');
+          setTimeout(() => { location.href = link; }, 4000);
+        } else {
+          setMsg($('hubStatus'), `Saved. The room now lives on another hub, probably at <a href="${esc(link)}">${esc(link)}</a>.`, 'ok');
+        }
+      } else {
+        setMsg($('hubStatus'), 'Saved. Reconnecting…', 'ok');
+      }
     } catch (e) { setMsg($('hubStatus'), e.message, 'err'); }
   };
   let hubFormFilled = false;
@@ -362,6 +408,8 @@
     const h = state.hub;
     if (!h) return;
     if (pin && !hubFormFilled && h.configured) { $('hubUrl').value = h.url; $('hubRoom').value = h.room; hubFormFilled = true; }
+    $('hubHint').textContent = pin && h.roomAuto ? 'The room is named after this PC. Give it a friendlier name here if you like; the key was generated for you and is kept unless you type a new one.' : '';
+    if (movedTo || Date.now() < hubMsgHold) return;
     if (pin && !document.activeElement.closest('#hostHub')) {
       let s;
       if (!h.configured) s = 'Not set up. Only this Wi-Fi can reach the queue.';
@@ -404,6 +452,7 @@
   // ---- render -------------------------------------------------------------
   function render() {
     if (!state) return;
+    if (pin) renderPinBox();
     renderBt();
     renderHub();
     const p = state.playback;

@@ -8,6 +8,10 @@
  * Needs Node >= 20 and internet once (downloads the `postject` helper via npx).
  * The exe still needs VLC on the target PC; it installs VLC with winget and
  * downloads yt-dlp by itself on first run.
+ *
+ * The hub address the exe joins by default comes from hub-default.json
+ * (override with BUILD_HUB_URL=wss://.../agent). Only the URL is embedded,
+ * never a room key.
  */
 const fs = require('fs');
 const path = require('path');
@@ -18,6 +22,7 @@ const DIST = path.join(ROOT, 'dist');
 const EXE = path.join(DIST, 'SpeakerQueue.exe');
 const BLOB = path.join(ROOT, 'sea-prep.blob');
 const CFG = path.join(ROOT, 'sea-config.json');
+const HUB_ASSET = path.join(ROOT, 'sea-hub-default.json');
 
 fs.mkdirSync(DIST, { recursive: true });
 
@@ -25,6 +30,13 @@ fs.mkdirSync(DIST, { recursive: true });
 const assets = {};
 for (const f of fs.readdirSync(path.join(ROOT, 'public'))) assets[f] = path.join('public', f).replace(/\\/g, '/');
 assets['bluetooth.ps1'] = 'bluetooth.ps1';
+let hubUrl = process.env.BUILD_HUB_URL || '';
+if (!hubUrl) { try { hubUrl = JSON.parse(fs.readFileSync(path.join(ROOT, 'hub-default.json'), 'utf8')).hubUrl || ''; } catch (_) { /* none */ } }
+hubUrl = String(hubUrl).trim();
+if (hubUrl && !/^wss?:\/\//.test(hubUrl)) throw new Error('default hub URL must start with ws:// or wss://: ' + hubUrl);
+console.log('default hub: ' + (hubUrl || '(none, hosts set it in config.json)'));
+fs.writeFileSync(HUB_ASSET, JSON.stringify({ hubUrl }));
+assets['hub-default.json'] = 'sea-hub-default.json';
 fs.writeFileSync(CFG, JSON.stringify({
   main: 'server.js',
   output: 'sea-prep.blob',
@@ -57,6 +69,7 @@ fs.copyFileSync(path.join(ROOT, 'enable-autologin.bat'), path.join(DIST, 'enable
 fs.writeFileSync(path.join(DIST, 'Remove from Startup.bat'), '@echo off\r\n"%~dp0SpeakerQueue.exe" --remove-autostart\r\npause\r\n');
 fs.unlinkSync(BLOB);
 fs.unlinkSync(CFG);
+fs.unlinkSync(HUB_ASSET);
 
 const mb = (fs.statSync(EXE).size / 1024 / 1024).toFixed(1);
 console.log(`\nDone: ${EXE} (${mb} MB)\nCopy the dist folder to the new PC and double-click SpeakerQueue.exe.`);

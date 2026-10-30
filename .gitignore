@@ -1,2 +1,9 @@
 queue.json
 node_modules/
+config.json
+dist/config.json
+dist/queue.json
+dist/bin/
+sea-prep.blob
+sea-config.json
+sea-hub-default.json

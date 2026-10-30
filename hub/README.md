@@ -38,16 +38,22 @@ headers (Caddy does it automatically: `reverse_proxy localhost:8080`).
 
 ## Connect a speaker PC
 
-On the speaker PC open `http://localhost:3010`, Host controls (PIN), **Online
-hub**: enter `wss://<your-hub-host>/agent` (use `ws://` if the hub has no
-HTTPS), a room name such as `Office`, and a secret key. Save. The status line
-shows the room's public page, for example `https://<hub>/r/Office/`.
+Nothing to do when the exe was built for this hub (`hub-default.json` in the
+repo root): on first start the PC joins by itself as a room named after the
+PC, with a generated key, and prints the room link. Open that link on any
+device, Host controls, PIN `1234` (change it), and rename the room under
+**Online hub** if you like. The page follows the room to its new link.
 
-The same can be done with `config.json` next to the exe:
+For a hub the exe was not built for, either rebuild with
+`BUILD_HUB_URL=wss://<your-hub-host>/agent node build.js`, or set it on the
+PC: room page → Host controls → **Online hub** → `wss://<your-hub-host>/agent`
+(`ws://` if the hub has no HTTPS), or a `config.json` next to the exe:
 ```json
-{ "hubUrl": "wss://queue.example.com/agent", "room": "Office", "roomKey": "secret" }
+{ "hubUrl": "wss://queue.example.com/agent", "room": "Office", "roomKey": "secret", "adminPin": "2468" }
 ```
-or environment variables `HUB_URL`, `ROOM`, `ROOM_KEY`.
+or environment variables `HUB_URL`, `ROOM`, `ROOM_KEY`. `"hubUrl": ""`
+switches the hub off. The key lives in `config.json`; copy the file to move a
+room to another PC, and never commit it.
 
 The first PC to register a room name owns it; the key protects it from being
 taken over. Anyone with the room link can add songs; host actions still need

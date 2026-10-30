@@ -176,22 +176,18 @@ function roomsPage() {
 <div class="card">
   <ol>
     <li><b>Pick the PC</b> that will stay next to the speaker. Pair the Bluetooth speaker with it in Windows settings, as you would for any laptop.</li>
-    <li><b>Run SpeakerQueue.exe</b> on that PC (the <code>dist</code> folder from the project). On first start it installs VLC, adds itself to Startup, and keeps the PC awake. Allow the one admin prompt.</li>
-    <li><b>On that same PC</b> open <code>http://localhost:3010</code> in a browser. This is the PC’s own control page, nobody else needs it.</li>
-    <li>Open <b>Host controls</b> and enter the PIN (default <code>1234</code>).</li>
-    <li>In <b>Online hub</b> fill in the three fields and press <b>Save &amp; connect</b>:
-      <table>
-        <tr><td>Hub URL</td><td><span class="copy"><code id="agentUrl"></code><button onclick="copyText('agentUrl',this)">Copy</button></span></td></tr>
-        <tr><td>Room</td><td>A name people will recognise, for example <code>Office</code> or <code>Hall</code></td></tr>
-        <tr><td>Key</td><td>Any secret. It stops another PC from taking over the room name.</td></tr>
-      </table>
-    </li>
-    <li>Within a few seconds the status line on that page shows the room’s public link, and the room appears in the list above. Share this site’s address or the room link with everyone.</li>
+    <li><b>Run SpeakerQueue.exe</b> on that PC (the <code>dist</code> folder from the project). On first start it installs VLC, adds itself to Startup, keeps the PC awake, and <b>joins this site by itself</b>. Allow the one admin prompt. Nothing to type on that PC.</li>
+    <li><b>Within a few seconds a room appears in the list above</b>, named after that PC (its Windows computer name, for example <code>LAPTOP-816SSCF4</code>). Open it from any phone or laptop.</li>
+    <li>Open <b>Host controls</b> on the room page and enter the PIN (default <code>1234</code>). <b>Change the PIN straight away</b> in the Host PIN box: this room is reachable by anyone on the internet who knows the link.</li>
+    <li>Optional: in <b>Online hub</b> give the room a friendlier name such as <code>Office</code> and your own key, then Save. The page moves to the new room link.</li>
+    <li><b>Share</b> the room link, or the QR code from the Share section on the room page.</li>
   </ol>
   <details>
-    <summary>Prefer a file instead of the page?</summary>
-    <p class="muted">Create <code>config.json</code> next to <code>SpeakerQueue.exe</code> before starting it:</p>
+    <summary>Using your own hub, or prefer a file?</summary>
+    <p class="muted">Speaker PCs connect to this site at <span class="copy"><code id="agentUrl"></code><button onclick="copyText('agentUrl',this)">Copy</button></span></p>
+    <p class="muted">To set everything from a file, create <code>config.json</code> next to <code>SpeakerQueue.exe</code> before starting it:</p>
     <div class="copy"><code id="cfgJson"></code><button onclick="copyText('cfgJson',this)">Copy</button></div>
+    <p class="muted"><code>"hubUrl": ""</code> switches the hub off for that PC. <code>"adminPin": "2468"</code> sets the host PIN. Keep <code>roomKey</code> secret: it is what stops another PC from taking over the room name, and copying the file to a new PC moves the room there.</p>
   </details>
 </div>
 
@@ -200,7 +196,8 @@ function roomsPage() {
   <ul style="margin:0;padding-left:20px">
     <li>Anyone with a room link can search and add songs. Skipping, removing and settings need the host PIN of that PC.</li>
     <li>The speaker PC reconnects on its own after restarts or internet drops. If this site restarts, the PC rejoins by itself, usually within a minute.</li>
-    <li>One PC equals one room. For another speaker in another place, set up another PC the same way with a different room name.</li>
+    <li>One PC equals one room. For another speaker in another place, run the exe on another PC; it gets its own room.</li>
+    <li>Renaming a room moves it. The old name drops off this list after an hour and is freed after a week.</li>
     <li>Room address: <code id="roomExample"></code></li>
   </ul>
 </div>
@@ -209,14 +206,14 @@ function roomsPage() {
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const agentUrl=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/agent';
 document.getElementById('agentUrl').textContent=agentUrl;
-document.getElementById('cfgJson').textContent='{ "hubUrl": "'+agentUrl+'", "room": "Office", "roomKey": "your-secret" }';
+document.getElementById('cfgJson').textContent='{ "hubUrl": "'+agentUrl+'", "room": "Office", "roomKey": "your-secret", "adminPin": "2468" }';
 document.getElementById('roomExample').textContent=location.origin+'/r/Office/';
 function copyText(id,btn){navigator.clipboard.writeText(document.getElementById(id).textContent).then(()=>{btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1500);});}
 async function load(){
   try{
     const rooms=await (await fetch('rooms')).json();
     const el=document.getElementById('list');
-    if(!rooms.length){el.innerHTML='<div class="card empty">No speaker is connected yet.<br>Follow “Set up a speaker” below to add the first room.</div>';return;}
+    if(!rooms.length){el.innerHTML='<div class="card empty">No speaker is connected yet.<br>Run SpeakerQueue.exe on the PC by the speaker; its room appears here within seconds.</div>';return;}
     el.innerHTML=rooms.map(r=>'<a class="room '+(r.online?'':'off')+'" href="r/'+encodeURIComponent(r.name)+'/"><div class="dot"></div><div><div class="t">'+esc(r.name)+'</div><div class="s">'+(r.online?(r.nowPlaying?'▶ '+esc(r.nowPlaying):'online, nothing playing')+' · '+r.queue+' queued':'offline, the speaker PC is not connected')+(r.speaker?' · '+esc(r.speaker):'')+'</div></div></a>').join('');
   }catch(e){}
 }
