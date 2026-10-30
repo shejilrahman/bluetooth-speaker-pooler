@@ -1398,7 +1398,12 @@ async function boot() {
       console.log('  Falling back to browser mode (keep /player open).');
     }
   }
-  setSetup('');
+  // Deployed to a cloud host by mistake (this app only makes sense on the Windows PC with the speaker)?
+  const WRONG_HOST = !IS_WIN
+    ? 'This is the speaker app, not the hub, and it is running on a Linux server where it cannot search, play or use Bluetooth. Deploy the "hub" folder here instead (on Render set Root Directory to hub) and run SpeakerQueue.exe on the Windows PC with the speaker'
+    : '';
+  setSetup(WRONG_HOST);
+  if (WRONG_HOST) console.log('\n  !! ' + WRONG_HOST + '\n');
   printBanner();
 
   if (engine === vlc) {
