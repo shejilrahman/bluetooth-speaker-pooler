@@ -87,7 +87,7 @@ const state = {
     paused: false,
     position: 0,
     duration: 0,
-    volume: 100,
+    volume: 32,       // default; the saved value in queue.json wins after the first run
     lastReport: 0,
     status: '',       // short human text, e.g. "resolving stream"
     setup: 'starting', // '' when ready, otherwise what the server is setting up
