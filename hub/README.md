@@ -10,14 +10,19 @@ downloads anything, it only relays, so the smallest instance is enough.
 Any host that runs Node 18+ and allows WebSockets works. Three easy options:
 
 **Render (free tier, good for trying it out)**
-1. Push this `hub` folder to a GitHub repository (it must be the repo root, or
-   set the root directory to `hub`).
-2. On render.com: New → Web Service → connect the repo. Runtime Node, build
-   command `npm install`, start command `node server.js`.
-3. Add a disk (1 GB) mounted at `/data` and set env var `DATA_DIR=/data` so
-   room keys survive restarts. Optional: `PUBLIC_URL=https://<your-app>.onrender.com`.
-4. Free instances sleep after 15 min without web traffic; the first visit then
-   takes about a minute to wake. Paid tier or another host avoids that.
+1. The repo already has a `render.yaml` blueprint at its root. On render.com:
+   New → Blueprint → connect the GitHub repo → Apply. That creates a web
+   service from the `hub` folder with the right build and start commands.
+   (Manual alternative: New → Web Service, root directory `hub`, runtime Node,
+   build `npm install`, start `node server.js`.)
+2. Your hub address is `https://<service-name>.onrender.com`. Speaker PCs use
+   `wss://<service-name>.onrender.com/agent`.
+3. Free instances sleep after 15 min without web traffic; the first visit then
+   takes about a minute to wake, and the speaker PC reconnects by itself.
+   Room keys (`rooms.json`) are reset on each restart on the free plan, which
+   only means the first PC to reconnect re-owns its room. For 24/7 and a
+   persistent file, switch the plan to Starter and enable the disk block in
+   `render.yaml` (`DATA_DIR=/data`).
 
 **Railway / Fly.io / any Docker host**
 - The `Dockerfile` is ready: `docker build -t speaker-hub . && docker run -p 8080:8080 -v hubdata:/data speaker-hub`.

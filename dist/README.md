@@ -87,7 +87,8 @@ outward. Searching and playing still happen on the speaker PC.
                                       /r/Hall/                room "Hall"
 ```
 
-1. Deploy the `hub` folder once: see `hub/README.md` (Render free tier, any
+1. Deploy the `hub` folder once: see `hub/README.md`. Quickest is Render's
+   Blueprint flow with the `render.yaml` in this repo (Render free tier, any
    Docker host, or a small VPS).
 2. On each speaker PC: queue page → Host controls → **Online hub** → enter
    `wss://<hub-host>/agent`, a room name and a secret key → Save & connect.

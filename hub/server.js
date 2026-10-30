@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT) || 3020;
-const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, ''); // e.g. https://queue.example.com (optional)
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, ''); // e.g. https://queue.example.com (optional; Render sets RENDER_EXTERNAL_URL)
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
 const PUBLIC_DIR = fs.existsSync(path.join(__dirname, 'public', 'index.html'))

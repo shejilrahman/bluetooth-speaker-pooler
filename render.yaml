@@ -1,0 +1,25 @@
+# Render blueprint: deploys the hub/ folder as one small Node web service.
+# Use it from https://render.com/deploy?repo=<this repo's GitHub URL>
+# or on render.com: New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: speaker-queue-hub
+    runtime: node
+    plan: free            # sleeps after 15 min idle; change to "starter" for 24/7
+    rootDir: hub
+    buildCommand: npm install --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+    # Room keys live in rooms.json. On the free plan that file is reset on every
+    # restart, which only means the first speaker PC to reconnect re-owns its
+    # room. For a persistent file, switch to plan "starter" and uncomment:
+    # disk:
+    #   name: hubdata
+    #   mountPath: /data
+    #   sizeGB: 1
+    # and add  - key: DATA_DIR
+    #            value: /data
