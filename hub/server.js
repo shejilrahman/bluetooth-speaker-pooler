@@ -108,9 +108,11 @@ function roomsPage() {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Speaker Queue</title>
 <style>
-  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#101218;color:#f1f3f8;font-size:17px}
-  .wrap{max-width:560px;margin:0 auto;padding:20px 14px}
-  h1{font-size:1.5rem;margin:10px 0 18px}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#101218;color:#f1f3f8;font-size:17px;line-height:1.45}
+  .wrap{max-width:600px;margin:0 auto;padding:20px 14px 60px}
+  h1{font-size:1.5rem;margin:10px 0 4px}
+  .sub{color:#97a0b5;margin:0 0 20px}
+  h2{font-size:1.05rem;margin:28px 0 10px;color:#f1f3f8}
   a.room{display:flex;align-items:center;gap:14px;background:#1a1d26;border-radius:16px;padding:16px;margin-bottom:12px;color:inherit;text-decoration:none;border:1px solid transparent}
   a.room:hover{border-color:#4f8cff}
   a.room.off{opacity:.5}
@@ -118,22 +120,92 @@ function roomsPage() {
   .off .dot{background:#ff5f6d}
   .t{font-weight:700;font-size:1.1rem}
   .s{color:#97a0b5;font-size:.85rem;margin-top:2px}
-  .hint{color:#97a0b5;font-size:.85rem;margin-top:24px;line-height:1.5}
-  code{background:#242837;padding:2px 6px;border-radius:6px}
+  .card{background:#1a1d26;border-radius:16px;padding:16px 18px;margin-bottom:12px}
+  .empty{border:1px dashed #3a3f52;color:#97a0b5;text-align:center;padding:22px}
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:8px;align-items:center;text-align:center;font-size:.9rem}
+  .flow .box{background:#242837;border-radius:12px;padding:10px 6px}
+  .flow .box b{display:block;font-size:1.4rem;margin-bottom:2px}
+  .flow .arr{color:#4f8cff;font-size:1.2rem}
+  .flow .cap{color:#97a0b5;font-size:.78rem;margin-top:2px}
+  ol{padding-left:22px;margin:8px 0}
+  li{margin:8px 0}
+  .muted{color:#97a0b5;font-size:.9rem}
+  code{background:#242837;padding:2px 6px;border-radius:6px;word-break:break-all}
+  .copy{display:inline-flex;align-items:center;gap:10px;background:#242837;border-radius:10px;padding:8px 10px;margin:6px 0;max-width:100%}
+  .copy code{background:none;padding:0}
+  button{background:#4f8cff;color:#fff;border:0;border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer;flex-shrink:0}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:#4f8cff}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  td{padding:6px 8px;border-top:1px solid #2a2f3f;vertical-align:top}
+  td:first-child{color:#97a0b5;white-space:nowrap}
+  @media (max-width:420px){.flow{grid-template-columns:1fr;}.flow .arr{transform:rotate(90deg)}}
 </style></head><body><div class="wrap">
-<h1>🔊 Speaker Queue · choose a room</h1>
-<div id="list">Loading…</div>
-<div class="hint">A room is a PC with a speaker running <b>SpeakerQueue.exe</b>. To add one: on that PC, open the queue page → Host controls → Online hub, enter this site's address as <code id="agentUrl"></code>, a room name and a secret key.</div>
+<h1>🔊 Speaker Queue</h1>
+<p class="sub">A shared music queue for a Bluetooth speaker. Anyone with the link can add songs from anywhere.</p>
+
+<h2>Rooms</h2>
+<div id="list"><div class="card empty">Loading…</div></div>
+<p class="muted">Tap a room to see its queue, search YouTube and add songs. A room is one speaker. Green means it is online now.</p>
+
+<h2>How it works</h2>
+<div class="card">
+  <div class="flow">
+    <div class="box"><b>📱</b>You, anywhere<div class="cap">phone or laptop, any network</div></div>
+    <div class="arr">→</div>
+    <div class="box"><b>☁️</b>This site<div class="cap">only passes messages</div></div>
+    <div class="arr">→</div>
+    <div class="box"><b>💻</b>PC by the speaker<div class="cap">plays the music over Bluetooth</div></div>
+  </div>
+  <p class="muted" style="margin:14px 0 0">This website never plays anything. Each room is a Windows PC sitting next to a Bluetooth speaker. That PC runs <b>SpeakerQueue.exe</b>, connects out to this site, and does the searching and playing. So listeners do not need to be on the same Wi-Fi as the speaker, but one PC must be within Bluetooth range of it.</p>
+</div>
+
+<h2>Set up a speaker (adds a room here)</h2>
+<div class="card">
+  <ol>
+    <li><b>Pick the PC</b> that will stay next to the speaker. Pair the Bluetooth speaker with it in Windows settings, as you would for any laptop.</li>
+    <li><b>Run SpeakerQueue.exe</b> on that PC (the <code>dist</code> folder from the project). On first start it installs VLC, adds itself to Startup, and keeps the PC awake. Allow the one admin prompt.</li>
+    <li><b>On that same PC</b> open <code>http://localhost:3010</code> in a browser. This is the PC’s own control page, nobody else needs it.</li>
+    <li>Open <b>Host controls</b> and enter the PIN (default <code>1234</code>).</li>
+    <li>In <b>Online hub</b> fill in the three fields and press <b>Save &amp; connect</b>:
+      <table>
+        <tr><td>Hub URL</td><td><span class="copy"><code id="agentUrl"></code><button onclick="copyText('agentUrl',this)">Copy</button></span></td></tr>
+        <tr><td>Room</td><td>A name people will recognise, for example <code>Office</code> or <code>Hall</code></td></tr>
+        <tr><td>Key</td><td>Any secret. It stops another PC from taking over the room name.</td></tr>
+      </table>
+    </li>
+    <li>Within a few seconds the status line on that page shows the room’s public link, and the room appears in the list above. Share this site’s address or the room link with everyone.</li>
+  </ol>
+  <details>
+    <summary>Prefer a file instead of the page?</summary>
+    <p class="muted">Create <code>config.json</code> next to <code>SpeakerQueue.exe</code> before starting it:</p>
+    <div class="copy"><code id="cfgJson"></code><button onclick="copyText('cfgJson',this)">Copy</button></div>
+  </details>
+</div>
+
+<h2>Good to know</h2>
+<div class="card muted">
+  <ul style="margin:0;padding-left:20px">
+    <li>Anyone with a room link can search and add songs. Skipping, removing and settings need the host PIN of that PC.</li>
+    <li>The speaker PC reconnects on its own after restarts or internet drops. If this site restarts, the PC rejoins by itself, usually within a minute.</li>
+    <li>One PC equals one room. For another speaker in another place, set up another PC the same way with a different room name.</li>
+    <li>Room address: <code id="roomExample"></code></li>
+  </ul>
+</div>
 </div>
 <script>
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-document.getElementById('agentUrl').textContent=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/agent';
+const agentUrl=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/agent';
+document.getElementById('agentUrl').textContent=agentUrl;
+document.getElementById('cfgJson').textContent='{ "hubUrl": "'+agentUrl+'", "room": "Office", "roomKey": "your-secret" }';
+document.getElementById('roomExample').textContent=location.origin+'/r/Office/';
+function copyText(id,btn){navigator.clipboard.writeText(document.getElementById(id).textContent).then(()=>{btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1500);});}
 async function load(){
   try{
     const rooms=await (await fetch('rooms')).json();
     const el=document.getElementById('list');
-    if(!rooms.length){el.innerHTML='<div class="s">No rooms yet.</div>';return;}
-    el.innerHTML=rooms.map(r=>'<a class="room '+(r.online?'':'off')+'" href="r/'+encodeURIComponent(r.name)+'/"><div class="dot"></div><div><div class="t">'+esc(r.name)+'</div><div class="s">'+(r.online?(r.nowPlaying?'▶ '+esc(r.nowPlaying):'online, nothing playing')+' · '+r.queue+' queued':'offline')+(r.speaker?' · '+esc(r.speaker):'')+'</div></div></a>').join('');
+    if(!rooms.length){el.innerHTML='<div class="card empty">No speaker is connected yet.<br>Follow “Set up a speaker” below to add the first room.</div>';return;}
+    el.innerHTML=rooms.map(r=>'<a class="room '+(r.online?'':'off')+'" href="r/'+encodeURIComponent(r.name)+'/"><div class="dot"></div><div><div class="t">'+esc(r.name)+'</div><div class="s">'+(r.online?(r.nowPlaying?'▶ '+esc(r.nowPlaying):'online, nothing playing')+' · '+r.queue+' queued':'offline, the speaker PC is not connected')+(r.speaker?' · '+esc(r.speaker):'')+'</div></div></a>').join('');
   }catch(e){}
 }
 load();setInterval(load,10000);
