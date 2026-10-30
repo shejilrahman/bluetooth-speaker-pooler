@@ -746,9 +746,15 @@ const hub = {
       state.hub.connected = false;
       state.hub.publicUrl = '';
       if (was) console.log('[hub] disconnected' + (ev && ev.reason ? ': ' + ev.reason : ''));
+      const wait = this.backoff;
+      if (!state.hub.lastError || /retry/.test(state.hub.lastError)) {
+        state.hub.lastError = (ev && ev.reason && ev.code !== 1006 ? ev.reason : 'cannot reach the hub (no internet, wrong address, or the hub is waking up)')
+          + `, retry in ${Math.round(wait / 1000)} s`;
+        console.log('[hub] ' + state.hub.lastError);
+      }
       broadcastState();
       clearTimeout(this.timer);
-      this.timer = setTimeout(() => this.connect(), this.backoff);
+      this.timer = setTimeout(() => this.connect(), wait);
       this.backoff = Math.min(this.backoff * 2, 60000);
     };
   },

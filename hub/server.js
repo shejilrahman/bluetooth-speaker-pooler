@@ -41,15 +41,27 @@ function loadRooms() {
 }
 
 function saveRooms() {
-  const data = [...rooms.values()].map((r) => ({ name: r.name, keyHash: r.keyHash, hostName: r.hostName || '', speaker: r.speaker || '', createdAt: r.createdAt }));
+  const data = [...rooms.values()].map((r) => ({ name: r.name, keyHash: r.keyHash, hostName: r.hostName || '', speaker: r.speaker || '', createdAt: r.createdAt, lastSeen: r.lastSeen || 0 }));
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFile(ROOMS_FILE, JSON.stringify(data, null, 2), () => {});
 }
 
 const hash = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
+const HIDE_AFTER = 60 * 60 * 1000;          // offline rooms disappear from the list after 1 hour
+const FORGET_AFTER = 7 * 24 * 60 * 60 * 1000; // and are deleted (name becomes free) after 7 days
+
+function pruneRooms() {
+  let changed = false;
+  for (const [k, r] of rooms) {
+    if (!r.agent && Date.now() - (r.lastSeen || r.createdAt || 0) > FORGET_AFTER) { rooms.delete(k); changed = true; console.log(`[room] forgot "${r.name}" (offline for a week)`); }
+  }
+  if (changed) saveRooms();
+}
+
 function roomList() {
   return [...rooms.values()]
+    .filter((r) => r.agent || Date.now() - (r.lastSeen || r.createdAt || 0) < HIDE_AFTER)
     .map((r) => ({
       name: r.name,
       online: Boolean(r.agent),
@@ -301,6 +313,7 @@ wss.on('connection', (ws, req) => {
       room.hostName = String(m.name || '').slice(0, 60);
       room.speaker = String(m.speaker || '').slice(0, 60);
       room.onlineSince = Date.now();
+      room.lastSeen = Date.now();
       ws.room = room;
       ws.isAlive = true;
       saveRooms();
@@ -331,6 +344,8 @@ wss.on('connection', (ws, req) => {
     const room = ws.room;
     if (room && room.agent === ws) {
       room.agent = null;
+      room.lastSeen = Date.now();
+      saveRooms();
       console.log(`[room] "${room.name}" offline`);
       if (room.lastState) {
         room.lastState = { ...room.lastState, playback: { ...room.lastState.playback, playerOnline: false, setup: 'speaker PC offline' } };
@@ -341,6 +356,8 @@ wss.on('connection', (ws, req) => {
     }
   });
 });
+
+setInterval(pruneRooms, 60 * 60 * 1000);
 
 // keep-alive: drop dead agents, keep SSE viewers alive
 setInterval(() => {
