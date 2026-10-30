@@ -1,0 +1,209 @@
+:root {
+  --bg: #0f1115;
+  --card: #181b22;
+  --card2: #1f232c;
+  --text: #e8eaf0;
+  --muted: #8b93a7;
+  --accent: #4f8cff;
+  --accent2: #2fd27d;
+  --danger: #ff5f6d;
+  --warn: #ffb347;
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+a { color: var(--accent); }
+
+.wrap {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+header h1 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.pill {
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--card2);
+  color: var(--muted);
+}
+.pill.on { color: var(--accent2); }
+.pill.off { color: var(--danger); }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.card h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+input[type="text"], input[type="password"] {
+  flex: 1;
+  min-width: 160px;
+  background: var(--card2);
+  border: 1px solid #2a2f3a;
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover { filter: brightness(1.1); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.ghost { background: var(--card2); color: var(--text); }
+button.danger { background: var(--danger); }
+button.small { padding: 6px 10px; font-size: 0.85rem; }
+button.voted { background: var(--accent2); color: #042; }
+
+.msg {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  min-height: 1.2em;
+  color: var(--muted);
+}
+.msg.err { color: var(--danger); }
+.msg.ok { color: var(--accent2); }
+
+/* now playing */
+.now {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.now img {
+  width: 120px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+  flex-shrink: 0;
+}
+.now .title { font-weight: 600; font-size: 1.05rem; }
+.now .sub { color: var(--muted); font-size: 0.85rem; }
+.progress {
+  height: 6px;
+  background: var(--card2);
+  border-radius: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+.progress > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+.time { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
+
+/* queue list */
+ol.queue { list-style: none; padding: 0; margin: 0; }
+ol.queue li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #242935;
+}
+ol.queue li:last-child { border-bottom: 0; }
+.pos {
+  width: 26px;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+ol.queue img {
+  width: 72px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #000;
+  flex-shrink: 0;
+}
+.info { flex: 1; min-width: 0; }
+.info .title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info .sub { color: var(--muted); font-size: 0.8rem; }
+.tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--warn);
+  color: #321;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.empty { color: var(--muted); text-align: center; padding: 18px 0; }
+
+.hist { font-size: 0.85rem; color: var(--muted); }
+.hist li { padding: 4px 0; display: flex; justify-content: space-between; gap: 8px; }
+
+.host-panel .row { margin-bottom: 8px; }
+input[type="range"] { flex: 1; }
+
+footer {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+  margin-top: 20px;
+}
+
+@media (max-width: 520px) {
+  .now img { width: 96px; height: 54px; }
+  .actions button.small { padding: 6px 8px; }
+  ol.queue img { display: none; }
+}

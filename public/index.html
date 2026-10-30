@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speaker Queue</title>
+<style>
+  :root { --bg:#101218; --card:#1a1d26; --card2:#242837; --text:#f1f3f8; --muted:#97a0b5; --accent:#4f8cff; --green:#2fd27d; --red:#ff5f6d; --yellow:#ffb347; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); font-size:17px; line-height:1.4; }
+  .wrap { max-width:640px; margin:0 auto; padding:14px 14px 60px; }
+  h1 { font-size:1.4rem; margin:6px 0 14px; display:flex; align-items:center; justify-content:space-between; }
+  .badge { font-size:.75rem; padding:4px 10px; border-radius:999px; background:var(--card2); color:var(--muted); font-weight:normal; }
+  .badge.on { color:var(--green); } .badge.off { color:var(--red); }
+  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:14px; }
+  .label { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 10px; }
+  input { width:100%; background:var(--card2); border:2px solid transparent; color:var(--text); padding:14px 16px; border-radius:12px; font-size:1.05rem; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { background:var(--accent); color:#fff; border:0; padding:12px 18px; border-radius:12px; font-size:1rem; font-weight:600; cursor:pointer; }
+  button:active { transform:scale(.97); }
+  button:disabled { opacity:.5; }
+  button.ghost { background:var(--card2); color:var(--text); }
+  button.red { background:var(--red); }
+  button.big { width:100%; padding:16px; font-size:1.1rem; margin-top:10px; }
+  .row { display:flex; gap:10px; align-items:center; }
+  .msg { margin-top:10px; color:var(--muted); min-height:1.3em; }
+  .msg.err { color:var(--red); } .msg.ok { color:var(--green); }
+
+  /* name bar */
+  #nameCard { background:linear-gradient(135deg,#2a3cff22,#4f8cff22); border:1px solid #4f8cff55; }
+
+  /* now playing */
+  .now { display:flex; gap:14px; align-items:center; }
+  .now img { width:110px; height:62px; object-fit:cover; border-radius:10px; background:#000; flex-shrink:0; }
+  .now .t { font-weight:700; font-size:1.1rem; }
+  .now .s { color:var(--muted); font-size:.9rem; margin-top:2px; }
+  .bar { height:8px; background:var(--card2); border-radius:4px; margin-top:10px; overflow:hidden; }
+  .bar > div { height:100%; width:0; background:var(--green); transition:width 1s linear; }
+  .time { font-size:.8rem; color:var(--muted); margin-top:4px; }
+
+  /* lists */
+  ul { list-style:none; padding:0; margin:0; }
+  li.song { display:flex; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid #2a2f3d; }
+  li.song:last-child { border-bottom:0; }
+  li.song img { width:80px; height:45px; object-fit:cover; border-radius:8px; background:#000; flex-shrink:0; }
+  li.song .info { flex:1; min-width:0; }
+  li.song .t { font-weight:600; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-size:.98rem; }
+  li.song .s { color:var(--muted); font-size:.82rem; margin-top:2px; }
+  .num { width:22px; color:var(--muted); text-align:center; font-weight:700; flex-shrink:0; }
+  .vote { background:var(--card2); color:var(--text); min-width:64px; padding:10px 8px; font-size:1rem; flex-shrink:0; }
+  .vote.on { background:var(--green); color:#063; }
+  .x { background:transparent; color:var(--muted); padding:8px; font-size:1.1rem; flex-shrink:0; }
+  .tag { display:inline-block; font-size:.7rem; padding:1px 6px; border-radius:4px; background:var(--yellow); color:#321; margin-left:6px; vertical-align:middle; }
+  .empty { color:var(--muted); text-align:center; padding:16px 0; }
+  .hint { color:var(--muted); font-size:.85rem; }
+
+  #results li.song { cursor:pointer; }
+  #results li.song:hover { background:#20242f; margin:0 -8px; padding-left:8px; padding-right:8px; border-radius:10px; }
+  .add { background:var(--green); color:#063; padding:10px 14px; flex-shrink:0; }
+
+  /* host */
+  details summary { cursor:pointer; color:var(--muted); font-size:.9rem; padding:8px 0; list-style:none; }
+  details summary::-webkit-details-marker { display:none; }
+  .host .row { margin-top:10px; flex-wrap:wrap; }
+  input[type=range] { padding:0; height:32px; }
+  .spin { display:inline-block; width:16px; height:16px; border:2px solid var(--muted); border-top-color:transparent; border-radius:50%; animation:sp .8s linear infinite; vertical-align:middle; margin-right:6px; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  @media (max-width:480px) { li.song img { display:none; } .now img { width:90px; height:51px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔊 Speaker Queue <span id="badge" class="badge">connecting…</span></h1>
+
+  <div id="setupCard" class="card" style="display:none;border:1px solid #ffb34766">
+    <div class="label">Setting up</div>
+    <div class="hint"><span class="spin"></span><span id="setupText"></span></div>
+  </div>
+
+  <!-- Share: QR + addresses (open by default on the host PC) -->
+  <details class="card" id="shareBox">
+    <summary>📱 Share: QR code and address for others</summary>
+    <div class="row" style="align-items:flex-start;margin-top:10px;flex-wrap:wrap">
+      <div id="qr" style="background:#fff;padding:8px;border-radius:12px;line-height:0"></div>
+      <div style="flex:1;min-width:200px">
+        <div class="hint">Scan the QR, or type one of these in a browser:</div>
+        <div id="shareUrls" style="margin-top:6px;font-size:1.05rem;word-break:break-all"></div>
+        <div class="hint" style="margin-top:8px" id="shareNote">The <b>.local</b> address keeps working even when the PC's IP changes. Everyone must be on the same Wi-Fi.</div>
+        <div class="hint" style="margin-top:6px" id="shareHub"></div>
+      </div>
+    </div>
+  </details>
+
+  <!-- Step 0: name, shown once -->
+  <div id="nameCard" class="card">
+    <div class="label">Hi! What's your name?</div>
+    <div class="row">
+      <input id="nameInput" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
+      <button id="nameBtn">OK</button>
+    </div>
+    <div class="hint" style="margin-top:8px">So everyone knows who added which song. Asked only once.</div>
+  </div>
+
+  <!-- Bluetooth speaker (Windows host only) -->
+  <div class="card" id="btCard" style="display:none">
+    <div class="label">Bluetooth speaker</div>
+    <div class="row">
+      <div style="flex:1;min-width:0">
+        <div id="btName" style="font-weight:700;font-size:1.05rem">—</div>
+        <div id="btStatus" class="hint"></div>
+      </div>
+      <button id="btConnect">🔗 Connect</button>
+    </div>
+    <div id="btMsg" class="msg"></div>
+  </div>
+
+  <!-- Now playing -->
+  <div class="card">
+    <div class="label">Now playing</div>
+    <div id="now"><div class="empty">Nothing yet. Add a song below 👇</div></div>
+  </div>
+
+  <!-- Search / add -->
+  <div class="card">
+    <div class="label">Add a song</div>
+    <div class="row">
+      <input id="q" type="text" placeholder="Type a song name… or paste a YouTube link" autocomplete="off">
+      <button id="searchBtn">Search</button>
+    </div>
+    <div id="searchMsg" class="msg"></div>
+    <ul id="results"></ul>
+  </div>
+
+  <!-- Queue -->
+  <div class="card">
+    <div class="label">Up next · <span id="count">0</span> songs · tap 👍 to move a song up</div>
+    <ul id="queue"></ul>
+  </div>
+
+  <details class="card" id="histBox">
+    <summary>Recently played</summary>
+    <ul id="history"></ul>
+  </details>
+
+  <details class="card host">
+    <summary id="hostSummary">Host controls (PIN)</summary>
+    <div id="hostLocked" class="row">
+      <input id="pin" type="password" placeholder="Host PIN" style="max-width:180px">
+      <button id="unlockBtn" class="ghost">Unlock</button>
+    </div>
+    <div id="pinMsg" class="msg"></div>
+    <div id="hostOpen" style="display:none">
+      <div class="row">
+        <button id="playBtn" class="ghost">▶ Play</button>
+        <button id="pauseBtn" class="ghost">⏸ Pause</button>
+        <button id="skipBtn">⏭ Skip</button>
+        <button id="clearBtn" class="red">Clear queue</button>
+        <button id="lockBtn" class="ghost">Lock</button>
+      </div>
+      <div class="row">
+        <span class="hint">Volume</span>
+        <input id="volume" type="range" min="0" max="100" value="100">
+        <span id="volVal" class="hint">100</span>
+      </div>
+      <div class="hint" id="hostHint" style="margin-top:8px"></div>
+      <div id="hostBt" style="display:none;margin-top:12px;border-top:1px solid #2a2f3d;padding-top:10px">
+        <div class="label">Speaker settings</div>
+        <div class="row">
+          <select id="speakerSel" style="flex:1;background:var(--card2);color:var(--text);border:0;padding:12px;border-radius:12px;font-size:1rem"></select>
+          <button id="btDisconnect" class="ghost">Disconnect</button>
+        </div>
+        <label class="hint" style="display:block;margin-top:8px"><input type="checkbox" id="autoConnect"> Auto-connect the speaker whenever it is on and not connected</label>
+        <div class="hint" style="margin-top:6px">The speaker must be paired with the host PC once (Windows Settings → Bluetooth). After that, anyone can press Connect here.</div>
+      </div>
+      <div id="hostHub" style="margin-top:12px;border-top:1px solid #2a2f3d;padding-top:10px">
+        <div class="label">Online hub (optional)</div>
+        <div class="hint">Lets people use this queue from anywhere, not only this Wi-Fi, and pick this room on the hub site. Needs a hub deployed somewhere (see README).</div>
+        <div class="row" style="margin-top:8px"><input id="hubUrl" type="text" placeholder="wss://your-hub.example.com/agent" autocomplete="off"></div>
+        <div class="row">
+          <input id="hubRoom" type="text" placeholder="Room name, e.g. Office" maxlength="40" autocomplete="off">
+          <input id="hubKey" type="password" placeholder="Room key (secret)" autocomplete="off">
+          <button id="hubSave" class="ghost">Save & connect</button>
+        </div>
+        <div id="hubStatus" class="msg"></div>
+      </div>
+    </div>
+  </details>
+
+  <p class="hint" style="text-align:center">This page: <b id="shareUrl"></b></p>
+</div>
+
+<script src="qr.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let state = null;
+  let pin = localStorage.getItem('hostPin') || '';
+  let name = localStorage.getItem('userName') || '';
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const fmt = (s) => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const me = () => name || 'Anonymous';
+  $('shareUrl').textContent = location.origin + location.pathname;
+
+  // ---- share box: QR + addresses -------------------------------------------
+  const onHostPc = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  if (onHostPc) $('shareBox').open = true;
+  async function loadShare() {
+    try {
+      const info = await (await fetch('api/share')).json();
+      if (info.hub) {
+        // Served through the online hub: one address for everyone, from anywhere.
+        $('qr').innerHTML = window.QR ? window.QR.toSvg(info.url, 190) : '';
+        $('shareUrls').innerHTML = `<div><b>${esc(info.url)}</b> <span class="hint">(online, works from anywhere)</span></div>`;
+        $('shareNote').textContent = 'Anyone with this address can see and add to the queue for room "' + info.room + '".';
+        return;
+      }
+      const real = info.ipUrls.filter((u) => !u.virtual);
+      const primary = (real[0] || info.ipUrls[0] || {}).url || ('http://' + location.host);
+      $('qr').innerHTML = window.QR ? window.QR.toSvg(primary, 190) : '';
+      const lines = [`<div><b>${esc(primary)}</b> <span class="hint">(current Wi-Fi address)</span></div>`,
+        `<div><b>${esc(info.localUrl)}</b> <span class="hint">(permanent)</span></div>`];
+      for (const u of real.slice(1)) lines.push(`<div>${esc(u.url)} <span class="hint">(${esc(u.adapter)})</span></div>`);
+      $('shareUrls').innerHTML = lines.join('');
+    } catch (_) { /* server still starting */ }
+  }
+  loadShare();
+  setInterval(loadShare, 60000); // IP may change after a reconnect
+
+  async function api(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  const setMsg = (el, text, cls) => { el.innerHTML = text; el.className = 'msg ' + (cls || ''); };
+
+  // ---- name (once) ------------------------------------------------------
+  function showName() { $('nameCard').style.display = name ? 'none' : ''; }
+  function saveName() {
+    const v = $('nameInput').value.trim();
+    if (!v) { $('nameInput').focus(); return; }
+    name = v; localStorage.setItem('userName', v); showName(); render(); $('q').focus();
+  }
+  $('nameBtn').onclick = saveName;
+  $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveName(); });
+  showName();
+
+  // ---- search + add ------------------------------------------------------
+  async function search() {
+    const q = $('q').value.trim();
+    if (!q) return;
+    if (!name) { setMsg($('searchMsg'), 'Enter your name first (top of the page).', 'err'); $('nameInput').focus(); return; }
+    $('searchBtn').disabled = true;
+    setMsg($('searchMsg'), '<span class="spin"></span>Searching YouTube…');
+    $('results').innerHTML = '';
+    try {
+      const j = await api('api/search', { q });
+      if (!j.results.length) { setMsg($('searchMsg'), 'No results. Try different words.', 'err'); return; }
+      setMsg($('searchMsg'), 'Tap a song to add it:');
+      $('results').innerHTML = j.results.map((r) => `
+        <li class="song" data-vid="${r.videoId}">
+          <img src="${esc(r.thumbnail)}" alt="">
+          <div class="info"><div class="t">${esc(r.title)}</div><div class="s">${esc(r.author)}${r.duration ? ' · ' + fmt(r.duration) : ''}</div></div>
+          <button class="add">+ Add</button>
+        </li>`).join('');
+    } catch (e) {
+      setMsg($('searchMsg'), e.message, 'err');
+    } finally {
+      $('searchBtn').disabled = false;
+    }
+  }
+  $('searchBtn').onclick = search;
+  $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
+  // Pasting a link adds it straight away.
+  $('q').addEventListener('paste', () => setTimeout(() => { if (/youtu\.?be/.test($('q').value)) search(); }, 50));
+
+  async function addVideo(videoId, li) {
+    if (li) li.style.opacity = '.5';
+    try {
+      const j = await api('api/add', { url: videoId, user: me(), pin });
+      setMsg($('searchMsg'), j.duplicate ? '👍 ' + j.message : '✅ Added: ' + esc(j.song.title), 'ok');
+      $('results').innerHTML = '';
+      $('q').value = '';
+    } catch (e) {
+      setMsg($('searchMsg'), e.message, 'err');
+      if (li) li.style.opacity = '';
+    }
+  }
+  $('results').addEventListener('click', (e) => {
+    const li = e.target.closest('li.song');
+    if (li) addVideo(li.dataset.vid, li);
+  });
+
+  // ---- queue actions ----------------------------------------------------
+  $('queue').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const id = btn.closest('li').dataset.id;
+    try {
+      if (btn.dataset.act === 'vote') await api('api/vote', { id, user: me() });
+      if (btn.dataset.act === 'remove') await api('api/remove', { id, user: me(), pin });
+      if (btn.dataset.act === 'bump') await admin('bump', { id });
+    } catch (err) { alert(err.message); }
+  });
+  $('history').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-replay]');
+    if (btn) admin('replay', { id: btn.dataset.replay });
+  });
+
+  // ---- host ---------------------------------------------------------------
+  const admin = (action, extra) => api('api/admin', { pin, action, ...(extra || {}) }).catch((e) => alert(e.message));
+  async function unlock(p) {
+    try {
+      await api('api/admin', { pin: p, action: 'check' });
+      pin = p; localStorage.setItem('hostPin', p);
+      $('hostLocked').style.display = 'none'; $('hostOpen').style.display = ''; $('hostSummary').textContent = 'Host controls (unlocked)';
+      setMsg($('pinMsg'), '');
+      render();
+    } catch (e) { setMsg($('pinMsg'), e.message, 'err'); }
+  }
+  $('unlockBtn').onclick = () => unlock($('pin').value);
+  $('pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') unlock($('pin').value); });
+  $('lockBtn').onclick = () => { pin = ''; localStorage.removeItem('hostPin'); $('hostLocked').style.display = ''; $('hostOpen').style.display = 'none'; $('hostSummary').textContent = 'Host controls (PIN)'; render(); };
+  if (pin) unlock(pin);
+  $('playBtn').onclick = () => admin('play');
+  $('pauseBtn').onclick = () => admin('pause');
+  $('skipBtn').onclick = () => admin('skip');
+  $('clearBtn').onclick = () => { if (confirm('Remove every song from the queue?')) admin('clear'); };
+  let volTimer;
+  $('volume').oninput = (e) => { $('volVal').textContent = e.target.value; clearTimeout(volTimer); volTimer = setTimeout(() => admin('volume', { value: Number(e.target.value) }), 150); };
+
+  // ---- bluetooth ------------------------------------------------------------
+  async function btAction(action, btn) {
+    const msg = $('btMsg');
+    if (btn) btn.disabled = true;
+    setMsg(msg, '<span class="spin"></span>' + (action === 'connect' ? 'Connecting the speaker… (takes up to 15 s)' : 'Disconnecting…'));
+    try {
+      const j = await api('api/bt', { action });
+      if (action === 'connect') setMsg(msg, j.result && j.result.note ? '✅ Speaker is already connected.' : '✅ Speaker connected. Music continues in a few seconds.', 'ok');
+      else setMsg(msg, 'Speaker disconnected. Press Connect to take it back.', 'ok');
+    } catch (e) {
+      setMsg(msg, '❌ ' + e.message, 'err');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+  $('btConnect').onclick = () => btAction('connect', $('btConnect'));
+  $('btDisconnect').onclick = () => { if (confirm('Disconnect the speaker from the host PC?')) btAction('disconnect', $('btDisconnect')); };
+  $('speakerSel').onchange = (e) => admin('speaker', { name: e.target.value });
+  $('autoConnect').onchange = (e) => admin('autoconnect', { value: e.target.checked });
+
+  // ---- online hub -----------------------------------------------------------
+  $('hubSave').onclick = async () => {
+    try {
+      await api('api/admin', { pin, action: 'hub', url: $('hubUrl').value.trim(), room: $('hubRoom').value.trim(), key: $('hubKey').value });
+      setMsg($('hubStatus'), $('hubUrl').value.trim() ? 'Saved. Connecting…' : 'Hub disabled.', 'ok');
+    } catch (e) { setMsg($('hubStatus'), e.message, 'err'); }
+  };
+  let hubFormFilled = false;
+  function renderHub() {
+    const h = state.hub;
+    if (!h) return;
+    if (pin && !hubFormFilled && h.configured) { $('hubUrl').value = h.url; $('hubRoom').value = h.room; hubFormFilled = true; }
+    if (pin && !document.activeElement.closest('#hostHub')) {
+      let s;
+      if (!h.configured) s = 'Not set up. Only this Wi-Fi can reach the queue.';
+      else if (h.connected) s = `🟢 Connected. Room page: <a href="${esc(h.publicUrl)}" target="_blank">${esc(h.publicUrl)}</a>`;
+      else s = '🔴 Not connected to ' + esc(h.url) + (h.lastError ? ' · ' + esc(h.lastError) : ' · retrying…');
+      $('hubStatus').innerHTML = s;
+      $('hubStatus').className = 'msg';
+    }
+    $('shareHub').innerHTML = h.connected && h.publicUrl && !/\/r\//.test(location.pathname)
+      ? `Also online from anywhere: <b>${esc(h.publicUrl)}</b>` : '';
+  }
+
+  function renderBt() {
+    const b = state.bluetooth;
+    $('btCard').style.display = b && b.available ? '' : 'none';
+    $('hostBt').style.display = b && b.available && pin ? '' : 'none';
+    if (!b || !b.available) return;
+    $('btName').textContent = b.speaker || 'No speaker chosen yet';
+    let st;
+    if (b.status === 'connecting') st = '⏳ connecting…';
+    else if (b.status === 'disconnecting') st = '⏳ disconnecting…';
+    else if (b.radio && b.radio !== 'On' && b.radio !== 'unknown') st = '⚠️ Bluetooth is switched off on the host PC';
+    else if (!b.speaker) st = 'Host: choose the speaker under Host controls';
+    else if (!b.paired) st = '⚠️ not paired with the host PC';
+    else if (b.connected) st = '🟢 connected to the host PC';
+    else st = '🔴 not connected. Switch the speaker on, then press Connect' + (b.autoConnect ? ' (or wait, auto-connect retries every minute)' : '');
+    $('btStatus').textContent = st + (b.lastError && !b.connected ? ' · ' + b.lastError : '');
+    $('btConnect').textContent = b.connected ? '🔄 Reconnect' : '🔗 Connect';
+    $('btConnect').disabled = Boolean(b.status);
+    if (pin) {
+      const sel = $('speakerSel');
+      const names = b.devices.map((d) => d.name);
+      if (b.speaker && !names.includes(b.speaker)) names.unshift(b.speaker);
+      const want = names.map((n) => `<option value="${esc(n)}"${n === b.speaker ? ' selected' : ''}>${esc(n)}${(b.devices.find((d) => d.name === n) || {}).connected ? ' (connected)' : ''}</option>`).join('');
+      if (sel.innerHTML !== want) sel.innerHTML = want || '<option>No paired audio devices</option>';
+      $('autoConnect').checked = Boolean(b.autoConnect);
+    }
+  }
+
+  // ---- render -------------------------------------------------------------
+  function render() {
+    if (!state) return;
+    renderBt();
+    renderHub();
+    const p = state.playback;
+    $('setupCard').style.display = p.setup ? '' : 'none';
+    $('setupText').textContent = p.setup ? p.setup + '…' : '';
+    const b = $('badge');
+    if (p.setup) { b.textContent = 'setting up'; b.className = 'badge'; }
+    else if (!p.playerOnline) { b.textContent = 'speaker offline'; b.className = 'badge off'; }
+    else if (p.paused) { b.textContent = 'paused'; b.className = 'badge'; }
+    else { b.textContent = 'speaker online'; b.className = 'badge on'; }
+
+    const np = state.nowPlaying;
+    if (np) {
+      const pct = p.duration ? Math.min(100, p.position / p.duration * 100) : 0;
+      $('now').innerHTML = `<div class="now">
+          <img src="${esc(np.thumbnail)}" alt="">
+          <div style="flex:1;min-width:0">
+            <div class="t">${esc(np.title)}</div>
+            <div class="s">added by ${esc(np.addedBy)}${p.paused ? ' · ⏸ paused' : ''}${p.status ? ' · ' + esc(p.status) + '…' : ''}</div>
+            <div class="bar"><div style="width:${pct}%"></div></div>
+            <div class="time">${fmt(p.position)} / ${fmt(p.duration)}</div>
+          </div></div>`
+        + (!p.playerOnline ? '<div class="s" style="color:var(--red);margin-top:8px">The speaker PC is not playing right now (server or VLC offline).</div>' : '');
+    } else {
+      $('now').innerHTML = '<div class="empty">Nothing yet. Add a song below 👇</div>';
+    }
+
+    $('count').textContent = state.queue.length;
+    $('queue').innerHTML = state.queue.length ? state.queue.map((s, i) => {
+      const voted = s.votes.includes(me());
+      const mine = s.addedBy === me();
+      return `<li class="song" data-id="${s.id}">
+        <div class="num">${i + 1}</div>
+        <img src="${esc(s.thumbnail)}" alt="">
+        <div class="info">
+          <div class="t">${esc(s.title)}${s.bumpedAt ? '<span class="tag">HOST PICK</span>' : ''}</div>
+          <div class="s">${esc(s.addedBy)} · ${s.votes.length} 👍</div>
+        </div>
+        <button class="vote ${voted ? 'on' : ''}" data-act="vote">👍 ${s.votes.length}</button>
+        ${pin && !s.bumpedAt ? '<button class="x" data-act="bump" title="Play next">⬆</button>' : ''}
+        ${(mine || pin) ? '<button class="x" data-act="remove" title="Remove">✕</button>' : ''}
+      </li>`;
+    }).join('') : '<li class="empty">Queue is empty. Add something!</li>';
+
+    $('history').innerHTML = state.history.length ? state.history.map((s) => `<li class="song">
+        <div class="info"><div class="t">${esc(s.title)}</div><div class="s">${esc(s.addedBy)}${s.endReason === 'skipped' ? ' · skipped' : ''}${s.endReason === 'error' ? ' · ❌ could not play' + (s.error ? ': ' + esc(s.error) : '') : ''}</div></div>
+        ${pin ? `<button class="ghost" data-replay="${s.id}">↻</button>` : ''}
+      </li>`).join('') : '<li class="empty">Nothing yet.</li>';
+
+    $('hostHint').textContent = p.engine === 'vlc'
+      ? 'Audio plays through VLC on the host PC. ⬆ on a song plays it next.'
+      : 'Browser mode: keep /player open on the host PC. ⬆ on a song plays it next.';
+    if (document.activeElement !== $('volume')) { $('volume').value = p.volume; $('volVal').textContent = p.volume; }
+  }
+
+  // ---- live updates -----------------------------------------------------
+  function connect() {
+    const es = new EventSource('api/events');
+    es.addEventListener('state', (ev) => { state = JSON.parse(ev.data); render(); });
+    es.onerror = () => { es.close(); $('badge').textContent = 'reconnecting…'; $('badge').className = 'badge off'; setTimeout(connect, 2000); };
+  }
+  connect();
+
+  // Smooth progress between server updates.
+  setInterval(() => {
+    if (state && state.nowPlaying && state.playback.playerOnline && !state.playback.paused && !state.playback.status) {
+      state.playback.position += 1;
+      const bar = document.querySelector('.bar > div'), t = document.querySelector('.time');
+      if (bar && state.playback.duration) bar.style.width = Math.min(100, state.playback.position / state.playback.duration * 100) + '%';
+      if (t) t.textContent = fmt(state.playback.position) + ' / ' + fmt(state.playback.duration);
+    }
+  }, 1000);
+})();
+</script>
+</body>
+</html>
