@@ -46,6 +46,7 @@ const PORT = Number(process.env.PORT) || 3010;
 //   room, roomKey   the room on the hub (roomKey is a secret: it stops another PC taking the name)
 //   roomAuto true   room name was generated from this PC's name on first run
 //   adminPin        host PIN set from the page (ADMIN_PIN env var overrides it)
+//   joinCode        the room's join code on the hub (kept here so it survives hub restarts)
 const CONFIG_FILE = path.join(APP_DIR, 'config.json');
 let config = {};
 try { config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (_) { /* none yet */ }
@@ -774,7 +775,8 @@ const hub = {
     this.ws = ws;
     ws.onopen = () => {
       this.backoff = 2000;
-      ws.send(JSON.stringify({ type: 'register', room: s.room, key: s.key, name: os.hostname(), speaker: state.bluetooth.speaker || '' }));
+      // joinCode: this PC keeps its room's join code so it survives hub restarts (the hub may assign another if taken)
+      ws.send(JSON.stringify({ type: 'register', room: s.room, key: s.key, name: os.hostname(), speaker: state.bluetooth.speaker || '', joinCode: config.joinCode || '' }));
     };
     ws.onmessage = (ev) => {
       let m;
@@ -821,6 +823,7 @@ const hub = {
       state.hub.publicUrl = m.publicUrl || '';
       state.hub.joinCode = m.joinCode || '';
       state.hub.joinUrl = m.joinUrl || '';
+      if (m.joinCode && m.joinCode !== config.joinCode) { config.joinCode = m.joinCode; saveConfig(); }
       state.hub.lastError = '';
       console.log('[hub] connected, room page: ' + state.hub.publicUrl + (state.hub.joinCode ? '  join code: ' + state.hub.joinCode : ''));
       const key = state.hub.publicUrl + '|' + state.hub.joinCode;

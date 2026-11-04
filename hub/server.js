@@ -375,14 +375,18 @@ wss.on('connection', (ws, req) => {
       if (!ROOM_RE.test(name)) { ws.send(JSON.stringify({ type: 'error', error: 'Room name: letters, numbers, spaces, - or _ (max 40).' })); return ws.close(4000, 'bad room name'); }
       const keyHash = hash(m.key || '');
       let room = rooms.get(name.toLowerCase());
+      // The PC remembers its join code; honour it unless another room already uses it.
+      const wanted = normCode(m.joinCode);
+      const codeFree = (c) => c.length >= 6 && ![...rooms.values()].some((r) => r !== room && r.joinCode === c);
       if (!room) {
-        room = { name, keyHash, agent: null, lastState: null, sse: new Set(), pending: new Map(), onlineSince: 0, createdAt: Date.now(), joinCode: newJoinCode() };
+        room = { name, keyHash, agent: null, lastState: null, sse: new Set(), pending: new Map(), onlineSince: 0, createdAt: Date.now(), joinCode: codeFree(wanted) ? wanted : newJoinCode() };
         rooms.set(name.toLowerCase(), room);
         console.log(`[room] created "${name}"`);
       } else if (room.keyHash !== keyHash) {
         ws.send(JSON.stringify({ type: 'error', error: `Room "${room.name}" exists and the key is wrong. Pick another room name or use the right key.` }));
         return ws.close(4001, 'wrong key');
       }
+      if (wanted && wanted !== room.joinCode && codeFree(wanted)) room.joinCode = wanted;
       if (room.agent && room.agent !== ws) { try { room.agent.close(4002, 'replaced by a new connection'); } catch (_) { /* ignore */ } }
       room.agent = ws;
       room.hostName = String(m.name || '').slice(0, 60);
