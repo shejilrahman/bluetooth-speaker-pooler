@@ -174,6 +174,13 @@ the new PIN (the browser-mode `/player` page too). Starting with the
 `ADMIN_PIN` environment variable overrides and locks the PIN, so the page
 cannot change it. Bluetooth **Disconnect** needs the PIN; **Connect** does not.
 
+The browser and the Android app remember what worked, so returning needs no
+typing. The hub's home page lists **Your rooms** with an Open button, and the
+PIN is saved per room (localStorage `sqRooms` and `hostPin:<room>`). A PIN that
+stops working is forgotten; a speaker PC that is offline does not cost you the
+saved PIN. ✕ next to a room forgets it and its PIN on that device. **New join
+code** keeps the host who pressed it in the room.
+
 ## Running from source instead of the exe
 
 Needs Node.js 18+, VLC, and yt-dlp (`python -m pip install --user -U yt-dlp`,

@@ -1173,8 +1173,11 @@ async function handleApi(req, res, pathname, presetBody) {
           }
           case 'newcode': {
             if (!state.hub.connected) return json(res, 409, { error: 'Not connected to the hub.' });
+            const oldCode = state.hub.joinCode;
             hub.send({ type: 'newcode' });
-            return json(res, 200, { ok: true });
+            // The hub answers with a 'registered' message; wait for it so the caller can stay in the room.
+            for (let i = 0; i < 30 && state.hub.joinCode === oldCode; i++) await new Promise((r) => setTimeout(r, 100));
+            return json(res, 200, { ok: true, joinCode: state.hub.joinCode === oldCode ? '' : state.hub.joinCode });
           }
           case 'pin': {
             if (PIN_FIXED) return json(res, 409, { error: 'The PIN is fixed by the ADMIN_PIN environment variable on the speaker PC.' });

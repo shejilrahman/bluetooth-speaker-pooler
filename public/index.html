@@ -289,7 +289,10 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   let state = null;
-  let pin = localStorage.getItem('hostPin') || '';
+  // On the hub several rooms share one site, so each room keeps its own PIN. 'hostPin' is the old single slot.
+  const roomPath = location.pathname.match(/^\/r\/([^/]+)\//);
+  const PIN_KEY = roomPath ? 'hostPin:' + decodeURIComponent(roomPath[1]).toLowerCase() : 'hostPin';
+  let pin = localStorage.getItem(PIN_KEY) || localStorage.getItem('hostPin') || '';
   let name = localStorage.getItem('userName') || '';
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -300,9 +303,19 @@
   // ---- share box: QR + addresses -------------------------------------------
   const onHostPc = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   if (onHostPc) $('shareBox').open = true;
+  // Rooms this browser has opened: the hub's home page lists them so nobody retypes a code.
+  function rememberRoom(room, code) {
+    let rooms = [];
+    try { rooms = JSON.parse(localStorage.getItem('sqRooms') || '[]'); } catch (_) { /* start over */ }
+    if (!Array.isArray(rooms)) rooms = [];
+    rooms = rooms.filter((r) => r.code !== code && String(r.room).toLowerCase() !== room.toLowerCase());
+    rooms.unshift({ room, code, at: Date.now() });
+    localStorage.setItem('sqRooms', JSON.stringify(rooms.slice(0, 10)));
+  }
   async function loadShare() {
     try {
       const info = await (await fetch('api/share')).json();
+      if (roomPath && info.room && info.joinCode) rememberRoom(info.room, info.joinCode);
       const codeLine = info.joinCode ? `<div class="joincode"><span class="hint">Join code</span><b>${esc(info.joinCode)}</b></div>` : '';
       if (info.hub || info.joinUrl) {
         // Online: the QR carries the join link, so scanning it enters the private room without typing.
@@ -332,7 +345,7 @@
   async function api(path, body) {
     const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    if (!r.ok) throw Object.assign(new Error(j.error || ('HTTP ' + r.status)), { status: r.status });
     return j;
   }
   const setMsg = (el, text, cls) => { el.innerHTML = text; el.className = el.className.replace(/\b(err|ok)\b/g, '').trim() + ' ' + (cls || ''); };
@@ -424,18 +437,25 @@
   async function unlock(p) {
     try {
       await api('api/admin', { pin: p, action: 'check' });
-      pin = p; localStorage.setItem('hostPin', p);
+      pin = p; localStorage.setItem(PIN_KEY, p);
+      if (PIN_KEY !== 'hostPin') localStorage.removeItem('hostPin');
       $('hostLocked').style.display = 'none'; $('hostOpen').style.display = ''; $('hostSummary').textContent = 'Host controls (unlocked)';
       setMsg($('pinMsg'), '');
       render();
     } catch (e) {
-      if (localStorage.getItem('hostPin') === p) localStorage.removeItem('hostPin'); // stale after a PIN change
+      if (e.status === 403) { // wrong PIN, or it changed: forget it. Any other failure is the speaker being offline.
+        if (localStorage.getItem(PIN_KEY) === p) localStorage.removeItem(PIN_KEY);
+        if (localStorage.getItem('hostPin') === p) localStorage.removeItem('hostPin');
+        if (pin === p) pin = '';
+      } else if (e.status !== 401 && pin === p) {
+        setTimeout(() => { if (pin === p) unlock(p); }, 10000); // keep the saved PIN and try again
+      }
       setMsg($('pinMsg'), e.message, 'err');
     }
   }
   $('unlockBtn').onclick = () => unlock($('pin').value);
   $('pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') unlock($('pin').value); });
-  $('lockBtn').onclick = () => { pin = ''; localStorage.removeItem('hostPin'); $('hostLocked').style.display = ''; $('hostOpen').style.display = 'none'; $('hostSummary').textContent = 'Host controls (PIN)'; render(); };
+  $('lockBtn').onclick = () => { pin = ''; localStorage.removeItem(PIN_KEY); $('hostLocked').style.display = ''; $('hostOpen').style.display = 'none'; $('hostSummary').textContent = 'Host controls (PIN)'; render(); };
   if (pin) unlock(pin);
   $('playPause').onclick = () => { if (!pin) return needPin($('playerMsg')); admin(state && state.playback.paused ? 'play' : 'pause'); };
   $('skipBtn').onclick = () => { if (!pin) return needPin($('playerMsg')); admin('skip'); };
@@ -473,7 +493,7 @@
     if (!/^\d{4,8}$/.test(newPin)) return setMsg($('pinChangeMsg'), 'PIN must be 4 to 8 digits.', 'err');
     try {
       await api('api/admin', { pin, action: 'pin', newPin });
-      pin = newPin; localStorage.setItem('hostPin', newPin); $('newPin').value = '';
+      pin = newPin; localStorage.setItem(PIN_KEY, newPin); $('newPin').value = '';
       setMsg($('pinChangeMsg'), 'PIN changed. Other devices must unlock again with the new PIN.', 'ok');
     } catch (e) { setMsg($('pinChangeMsg'), e.message, 'err'); }
   };
@@ -532,7 +552,11 @@
   };
   $('newCodeBtn').onclick = async () => {
     if (!confirm('Make a new join code? Everyone must use the new code or QR from now on.')) return;
-    try { await admin('newcode'); setTimeout(loadShare, 1500); hubMsgHold = Date.now() + 4000; setMsg($('hubStatus'), 'New join code requested…', 'ok'); } catch (_) { /* admin() alerts */ }
+    try {
+      const j = await admin('newcode');
+      if (j && j.joinCode && roomPath) { location.replace(location.pathname + '?code=' + j.joinCode); return; } // this browser stays in with the new code
+      setTimeout(loadShare, 1500); hubMsgHold = Date.now() + 4000; setMsg($('hubStatus'), 'New join code requested…', 'ok');
+    } catch (_) { /* admin() alerts */ }
   };
   let hubFormFilled = false;
   function renderHub() {

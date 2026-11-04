@@ -157,18 +157,53 @@ const PAGE_CSS = `
   button.sm{background:#5b8cff;color:#fff;border:0;border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer;flex-shrink:0}
   details{margin-top:8px} summary{cursor:pointer;color:#5b8cff}
   a{color:#5b8cff}
+  .saved{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #ffffff14}
+  .saved:first-of-type{border-top:0;padding-top:4px}
+  .saved .nm{flex:1;min-width:0;overflow-wrap:anywhere}
+  .saved .nm b{display:block}
+  .saved .open{background:#5b8cff;color:#fff;border-radius:8px;padding:8px 14px;font-weight:700;text-decoration:none;flex-shrink:0}
+  .saved .forget{background:none;border:0;color:#97a0b5;font:inherit;cursor:pointer;padding:6px;flex-shrink:0}
   @media (max-width:420px){.flow{grid-template-columns:1fr}.flow .arr{transform:rotate(90deg)}}
 `;
 
+// Rooms this browser has opened, kept in localStorage by the room page (the hub stores nothing about visitors).
+// One tap opens the room; on a private room's join page the code is filled in as well.
+const SAVED_ROOMS_JS = `(()=>{
+  const box=document.getElementById('savedRooms'),input=document.querySelector('form.join input');
+  const read=()=>{try{const v=JSON.parse(localStorage.getItem('sqRooms')||'[]');return Array.isArray(v)?v:[]}catch(_){return[]}};
+  function paint(){
+    const rooms=read().filter((r)=>r&&r.room&&r.code);
+    box.hidden=!rooms.length;box.replaceChildren();
+    if(!rooms.length)return;
+    const h=document.createElement('h2');h.textContent='Your rooms';h.style.marginTop='0';box.append(h);
+    for(const r of rooms){
+      const row=document.createElement('div');row.className='saved';
+      const nm=document.createElement('div');nm.className='nm';
+      const b=document.createElement('b');b.textContent=r.room;
+      const c=document.createElement('span');c.className='muted';c.textContent='Code '+r.code;
+      nm.append(b,c);
+      const open=document.createElement('a');open.className='open';open.href='/j/'+encodeURIComponent(r.code);open.textContent='Open';
+      const x=document.createElement('button');x.type='button';x.className='forget';x.title='Forget this room on this device';x.textContent='✕';
+      x.onclick=()=>{localStorage.setItem('sqRooms',JSON.stringify(read().filter((o)=>o.code!==r.code)));localStorage.removeItem('hostPin:'+String(r.room).toLowerCase());paint();};
+      row.append(nm,open,x);box.append(row);
+    }
+  }
+  paint();
+  const here=(box.dataset.room||'').toLowerCase(),mine=read().find((r)=>r&&String(r.room).toLowerCase()===here);
+  if(here&&mine&&!box.dataset.error)input.value=mine.code;
+})();`;
+
 function joinForm(roomName, error) {
-  return `<div class="card">
+  return `<div class="card" id="savedRooms" hidden data-room="${esc(roomName)}" data-error="${error ? '1' : ''}"></div>
+<div class="card">
   <form class="join" method="get" action="/join-go" onsubmit="location.href='/j/'+encodeURIComponent(this.code.value.trim().toUpperCase());return false">
     <input name="code" placeholder="JOIN CODE" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" autofocus>
     <button type="submit">Join</button>
   </form>
   ${error ? `<div class="err">${esc(error)}</div>` : ''}
-  <p class="muted" style="margin:12px 0 0">${roomName ? `Room <b>${esc(roomName)}</b> is private. ` : ''}The 6-character join code is shown on the speaker PC's page under Share, and in the QR code there. Scanning the QR joins without typing.</p>
-</div>`;
+  <p class="muted" style="margin:12px 0 0">${roomName ? `Room <b>${esc(roomName)}</b> is private. ` : ''}The 6-character join code is shown on the speaker PC's page under Share, and in the QR code there. Scanning the QR joins without typing. Rooms you open are remembered on this device.</p>
+</div>
+<script>${SAVED_ROOMS_JS}</script>`;
 }
 
 function joinPage(roomName, error) {
@@ -254,6 +289,7 @@ ${joinForm('', '')}
     <li>The speaker PC reconnects on its own after restarts or internet drops. If this site restarts, the PC rejoins by itself, usually within a minute.</li>
     <li>One PC equals one room. For another speaker in another place, run the exe on another PC; it gets its own room and code.</li>
     <li>Renaming a room keeps its join code. "New join code" under Online hub locks out everyone who had the old one.</li>
+    <li>This browser and the app remember the rooms you open and the host PIN that worked, so you do not type them again. On a shared device, press ✕ next to a room on this page to forget it and its PIN.</li>
   </ul>
 </div>
 </div>
@@ -281,7 +317,7 @@ const server = http.createServer(async (req, res) => {
   const j = p.match(/^\/j\/([A-Za-z0-9]{4,10})\/?$/);
   if (j) {
     const room = roomByCode(j[1]);
-    if (!room) return html(res, 404, joinPage('', 'That join code does not match any room. Check it on the speaker PC.'));
+    if (!room) return html(res, 404, joinPage('', 'That join code does not match any room. The host may have changed it, or the speaker PC is still starting: check the code, or try again in a minute.'));
     res.writeHead(302, { Location: `/r/${encodeURIComponent(room.name)}/?code=${room.joinCode}` });
     return res.end();
   }
