@@ -19,11 +19,12 @@ VPN on.
    - downloads yt-dlp (and Deno, used by yt-dlp for YouTube) into `bin\`
    - installs VLC through winget if it is missing (approve if asked)
    - adds a shortcut to the Startup folder, so it runs after every login
-4. A console window stays open. Within seconds it prints the room's link on
-   the online hub, for example `https://<hub>/r/LAPTOP-NAME/`. Open that link
-   on any device, expand **Host controls**, enter the PIN `1234` and change
-   it. Nothing needs to be opened on the speaker PC itself; its own page
-   `http://localhost:3010` keeps working as the Wi-Fi fallback.
+4. A console window stays open. Within seconds it prints the room's **join
+   code** and link on the online hub, for example `https://<hub>/j/AB3K7Q`.
+   Open that link on any device (or type the code on the hub's front page, or
+   in the Android app), expand **Host controls**, enter the PIN `1234` and
+   change it. Nothing needs to be opened on the speaker PC itself; its own
+   page `http://localhost:3010` keeps working as the Wi-Fi fallback.
 
 Windows SmartScreen may warn "unknown publisher" the first time. Click
 **More info -> Run anyway**. The exe is just Node.js with this program inside.
@@ -96,11 +97,19 @@ speaker PC joins that hub by itself as a room named after the PC, with a
 generated key, and prints the room link. From then on the host does
 everything from the room page on any device:
 
+- **Rooms are private.** The hub gives every room a 6-character join code.
+  Only people who entered it (typed on the hub's front page, opened as a
+  `/j/<code>` link, scanned from the QR under Share, or typed into the Android
+  app) can see or change that queue. The hub never lists rooms, so many groups
+  can share one hub without disturbing each other.
 - **Host controls → Host PIN**: change the default `1234` first.
 - **Host controls → Online hub**: rename the room (for example `Office`), set
   your own key, point the PC at another hub, or leave the address empty to
   switch the hub off. A blank key keeps the current one. Renaming moves the
-  room; the page follows to the new link.
+  room; the page follows to the new link. **New join code** locks out everyone
+  who had the old code.
+- **Android app**: the `speaker-queue-app` repository is a phone app for the
+  same hub (join by code or QR, player, volume, queue, host controls).
 
 Everything is stored in `config.json` next to the exe (`hubUrl`, `room`,
 `roomKey`, `adminPin`). `"hubUrl": ""` means hub off; a missing `hubUrl`
@@ -211,7 +220,7 @@ to skip setup steps.
 | POST | `/api/vote` | `{id, user}` toggles your vote | anyone |
 | POST | `/api/bt` | `{action, pin?}` connect, disconnect or refresh the Bluetooth speaker | anyone; disconnect needs the host PIN |
 | POST | `/api/remove` | `{id, user, pin?}` | owner or host |
-| POST | `/api/admin` | `{pin, action, id?, value?, name?}` actions: `check skip pause play volume bump unbump clear replay speaker autoconnect hub pin` | host |
+| POST | `/api/admin` | `{pin, action, id?, value?, name?}` actions: `check skip pause play volume bump unbump clear replay speaker autoconnect hub pin newcode` | host |
 | POST | `/api/player/status` | `{pin, position, duration, paused, volume}` | browser mode only |
 | POST | `/api/player/ended` | `{pin, id, reason}` | browser mode only |
 

@@ -38,10 +38,26 @@ function loadRooms() {
     const saved = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
     for (const r of saved) rooms.set(r.name.toLowerCase(), { ...r, agent: null, lastState: null, sse: new Set(), pending: new Map(), onlineSince: 0 });
   } catch (_) { /* first run */ }
+  let changed = false;
+  for (const r of rooms.values()) if (!r.joinCode) { r.joinCode = newJoinCode(); changed = true; }
+  if (changed) saveRooms();
 }
 
+// Join codes: what listeners type (or scan) to get into a room. Rooms are private otherwise.
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
+function newJoinCode() {
+  for (;;) {
+    let c = '';
+    for (const b of crypto.randomBytes(6)) c += CODE_ALPHABET[b % CODE_ALPHABET.length];
+    if (![...rooms.values()].some((r) => r.joinCode === c)) return c;
+  }
+}
+const normCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+const roomByCode = (c) => { c = normCode(c); return c ? [...rooms.values()].find((r) => r.joinCode === c) : null; };
+const joinUrl = (req, room) => `${baseUrl(req)}/j/${room.joinCode}`;
+
 function saveRooms() {
-  const data = [...rooms.values()].map((r) => ({ name: r.name, keyHash: r.keyHash, hostName: r.hostName || '', speaker: r.speaker || '', createdAt: r.createdAt, lastSeen: r.lastSeen || 0 }));
+  const data = [...rooms.values()].map((r) => ({ name: r.name, keyHash: r.keyHash, hostName: r.hostName || '', speaker: r.speaker || '', createdAt: r.createdAt, lastSeen: r.lastSeen || 0, joinCode: r.joinCode || '' }));
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFile(ROOMS_FILE, JSON.stringify(data, null, 2), () => {});
 }
@@ -116,49 +132,63 @@ function relay(room, method, apiPath, body) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function roomsPage() {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Speaker Queue</title>
-<style>
-  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#101218;color:#f1f3f8;font-size:17px;line-height:1.45}
+const PAGE_CSS = `
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(1200px 600px at 50% -200px,#1b2236 0%,#0b0d12 60%);color:#f1f3f8;font-size:17px;line-height:1.45;min-height:100vh}
   .wrap{max-width:600px;margin:0 auto;padding:20px 14px 60px}
   h1{font-size:1.5rem;margin:10px 0 4px}
   .sub{color:#97a0b5;margin:0 0 20px}
   h2{font-size:1.05rem;margin:28px 0 10px;color:#f1f3f8}
-  a.room{display:flex;align-items:center;gap:14px;background:#1a1d26;border-radius:16px;padding:16px;margin-bottom:12px;color:inherit;text-decoration:none;border:1px solid transparent}
-  a.room:hover{border-color:#4f8cff}
-  a.room.off{opacity:.5}
-  .dot{width:12px;height:12px;border-radius:50%;background:#2fd27d;flex-shrink:0}
-  .off .dot{background:#ff5f6d}
-  .t{font-weight:700;font-size:1.1rem}
-  .s{color:#97a0b5;font-size:.85rem;margin-top:2px}
-  .card{background:#1a1d26;border-radius:16px;padding:16px 18px;margin-bottom:12px}
-  .empty{border:1px dashed #3a3f52;color:#97a0b5;text-align:center;padding:22px}
+  .card{background:#161922;border-radius:18px;padding:16px 18px;margin-bottom:12px;border:1px solid #ffffff0a}
+  .join{display:flex;gap:10px}
+  .join input{flex:1;background:#1f2330;border:2px solid transparent;color:#fff;padding:14px 16px;border-radius:12px;font-size:1.3rem;letter-spacing:.25em;text-transform:uppercase;font-family:ui-monospace,Consolas,monospace;min-width:0}
+  .join input:focus{outline:none;border-color:#5b8cff}
+  .join button{background:linear-gradient(135deg,#5b8cff,#a06bff);color:#fff;border:0;border-radius:12px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}
+  .err{color:#ff5f6d;margin-top:10px}
   .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:8px;align-items:center;text-align:center;font-size:.9rem}
-  .flow .box{background:#242837;border-radius:12px;padding:10px 6px}
+  .flow .box{background:#1f2330;border-radius:12px;padding:10px 6px}
   .flow .box b{display:block;font-size:1.4rem;margin-bottom:2px}
-  .flow .arr{color:#4f8cff;font-size:1.2rem}
+  .flow .arr{color:#5b8cff;font-size:1.2rem}
   .flow .cap{color:#97a0b5;font-size:.78rem;margin-top:2px}
-  ol{padding-left:22px;margin:8px 0}
-  li{margin:8px 0}
+  ol{padding-left:22px;margin:8px 0} li{margin:8px 0}
   .muted{color:#97a0b5;font-size:.9rem}
-  code{background:#242837;padding:2px 6px;border-radius:6px;word-break:break-all}
-  .copy{display:inline-flex;align-items:center;gap:10px;background:#242837;border-radius:10px;padding:8px 10px;margin:6px 0;max-width:100%}
+  code{background:#1f2330;padding:2px 6px;border-radius:6px;word-break:break-all}
+  .copy{display:inline-flex;align-items:center;gap:10px;background:#1f2330;border-radius:10px;padding:8px 10px;margin:6px 0;max-width:100%}
   .copy code{background:none;padding:0}
-  button{background:#4f8cff;color:#fff;border:0;border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer;flex-shrink:0}
-  details{margin-top:8px}
-  summary{cursor:pointer;color:#4f8cff}
-  table{border-collapse:collapse;width:100%;font-size:.9rem}
-  td{padding:6px 8px;border-top:1px solid #2a2f3f;vertical-align:top}
-  td:first-child{color:#97a0b5;white-space:nowrap}
-  @media (max-width:420px){.flow{grid-template-columns:1fr;}.flow .arr{transform:rotate(90deg)}}
-</style></head><body><div class="wrap">
-<h1>🔊 Speaker Queue</h1>
-<p class="sub">A shared music queue for a Bluetooth speaker. Anyone with the link can add songs from anywhere.</p>
+  button.sm{background:#5b8cff;color:#fff;border:0;border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer;flex-shrink:0}
+  details{margin-top:8px} summary{cursor:pointer;color:#5b8cff}
+  a{color:#5b8cff}
+  @media (max-width:420px){.flow{grid-template-columns:1fr}.flow .arr{transform:rotate(90deg)}}
+`;
 
-<h2>Rooms</h2>
-<div id="list"><div class="card empty">Loading…</div></div>
-<p class="muted">Tap a room to see its queue, search YouTube and add songs. A room is one speaker. Green means it is online now.</p>
+function joinForm(roomName, error) {
+  return `<div class="card">
+  <form class="join" method="get" action="/join-go" onsubmit="location.href='/j/'+encodeURIComponent(this.code.value.trim().toUpperCase());return false">
+    <input name="code" placeholder="JOIN CODE" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" autofocus>
+    <button type="submit">Join</button>
+  </form>
+  ${error ? `<div class="err">${esc(error)}</div>` : ''}
+  <p class="muted" style="margin:12px 0 0">${roomName ? `Room <b>${esc(roomName)}</b> is private. ` : ''}The 6-character join code is shown on the speaker PC's page under Share, and in the QR code there. Scanning the QR joins without typing.</p>
+</div>`;
+}
+
+function joinPage(roomName, error) {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join a room · Speaker Queue</title><style>${PAGE_CSS}</style></head><body><div class="wrap">
+<h1>🔊 Speaker Queue</h1>
+<p class="sub">Enter the join code to see the queue and add songs.</p>
+${joinForm(roomName, error)}
+<p class="muted"><a href="/">What is this?</a></p>
+</div></body></html>`;
+}
+
+function roomsPage() {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Speaker Queue</title>
+<style>${PAGE_CSS}</style></head><body><div class="wrap">
+<h1>🔊 Speaker Queue</h1>
+<p class="sub">A shared music queue for a Bluetooth speaker. Everyone with the room's join code can add songs from anywhere.</p>
+
+<h2>Join a room</h2>
+${joinForm('', '')}
 
 <h2>How it works</h2>
 <div class="card">
@@ -169,24 +199,24 @@ function roomsPage() {
     <div class="arr">→</div>
     <div class="box"><b>💻</b>PC by the speaker<div class="cap">plays the music over Bluetooth</div></div>
   </div>
-  <p class="muted" style="margin:14px 0 0">This website never plays anything. Each room is a Windows PC sitting next to a Bluetooth speaker. That PC runs <b>SpeakerQueue.exe</b>, connects out to this site, and does the searching and playing. So listeners do not need to be on the same Wi-Fi as the speaker, but one PC must be within Bluetooth range of it.</p>
+  <p class="muted" style="margin:14px 0 0">This website never plays anything. Each room is a Windows PC sitting next to a Bluetooth speaker. That PC runs <b>SpeakerQueue.exe</b>, connects out to this site, and does the searching and playing. Rooms are private: only people with the room's join code can see or change its queue, so many groups can use this site without getting in each other's way.</p>
 </div>
 
-<h2>Set up a speaker (adds a room here)</h2>
+<h2>Set up a speaker (creates a room)</h2>
 <div class="card">
   <ol>
     <li><b>Pick the PC</b> that will stay next to the speaker. Pair the Bluetooth speaker with it in Windows settings, as you would for any laptop.</li>
-    <li><b>Run SpeakerQueue.exe</b> on that PC (the <code>dist</code> folder from the project). On first start it installs VLC, adds itself to Startup, keeps the PC awake, and <b>joins this site by itself</b>. Allow the one admin prompt. Nothing to type on that PC.</li>
-    <li><b>Within a few seconds a room appears in the list above</b>, named after that PC (its Windows computer name, for example <code>LAPTOP-816SSCF4</code>). Open it from any phone or laptop.</li>
-    <li>Open <b>Host controls</b> on the room page and enter the PIN (default <code>1234</code>). <b>Change the PIN straight away</b> in the Host PIN box: this room is reachable by anyone on the internet who knows the link.</li>
-    <li>Optional: in <b>Online hub</b> give the room a friendlier name such as <code>Office</code> and your own key, then Save. The page moves to the new room link.</li>
-    <li><b>Share</b> the room link, or the QR code from the Share section on the room page.</li>
+    <li><b>Run SpeakerQueue.exe</b> on that PC (the <code>dist</code> folder from the project). On first start it installs VLC, adds itself to Startup, keeps the PC awake, and <b>joins this site by itself</b>. Allow the one admin prompt.</li>
+    <li>The console on that PC prints the room link and the <b>join code</b>. Open the link on any phone, or type the code above.</li>
+    <li>Open <b>Host controls</b> on the room page and enter the PIN (default <code>1234</code>). <b>Change the PIN straight away.</b></li>
+    <li>Optional: under <b>Online hub</b> give the room a friendlier name, set your own key, or get a new join code if the old one leaked.</li>
+    <li><b>Share</b> the join code, or the QR code from the Share section on the room page. The Android app joins the same way.</li>
   </ol>
   <details>
     <summary>Using your own hub, or prefer a file?</summary>
-    <p class="muted">Speaker PCs connect to this site at <span class="copy"><code id="agentUrl"></code><button onclick="copyText('agentUrl',this)">Copy</button></span></p>
+    <p class="muted">Speaker PCs connect to this site at <span class="copy"><code id="agentUrl"></code><button class="sm" onclick="copyText('agentUrl',this)">Copy</button></span></p>
     <p class="muted">To set everything from a file, create <code>config.json</code> next to <code>SpeakerQueue.exe</code> before starting it:</p>
-    <div class="copy"><code id="cfgJson"></code><button onclick="copyText('cfgJson',this)">Copy</button></div>
+    <div class="copy"><code id="cfgJson"></code><button class="sm" onclick="copyText('cfgJson',this)">Copy</button></div>
     <p class="muted"><code>"hubUrl": ""</code> switches the hub off for that PC. <code>"adminPin": "2468"</code> sets the host PIN. Keep <code>roomKey</code> secret: it is what stops another PC from taking over the room name, and copying the file to a new PC moves the room there.</p>
   </details>
 </div>
@@ -194,30 +224,18 @@ function roomsPage() {
 <h2>Good to know</h2>
 <div class="card muted">
   <ul style="margin:0;padding-left:20px">
-    <li>Anyone with a room link can search and add songs. Skipping, removing and settings need the host PIN of that PC.</li>
+    <li>Anyone with the join code can search and add songs. Skipping, removing, volume and settings need the host PIN of that PC.</li>
     <li>The speaker PC reconnects on its own after restarts or internet drops. If this site restarts, the PC rejoins by itself, usually within a minute.</li>
-    <li>One PC equals one room. For another speaker in another place, run the exe on another PC; it gets its own room.</li>
-    <li>Renaming a room moves it. The old name drops off this list after an hour and is freed after a week.</li>
-    <li>Room address: <code id="roomExample"></code></li>
+    <li>One PC equals one room. For another speaker in another place, run the exe on another PC; it gets its own room and code.</li>
+    <li>Renaming a room keeps its join code. "New join code" under Online hub locks out everyone who had the old one.</li>
   </ul>
 </div>
 </div>
 <script>
-const esc=(s)=>String(s??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const agentUrl=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/agent';
 document.getElementById('agentUrl').textContent=agentUrl;
 document.getElementById('cfgJson').textContent='{ "hubUrl": "'+agentUrl+'", "room": "Office", "roomKey": "your-secret", "adminPin": "2468" }';
-document.getElementById('roomExample').textContent=location.origin+'/r/Office/';
 function copyText(id,btn){navigator.clipboard.writeText(document.getElementById(id).textContent).then(()=>{btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1500);});}
-async function load(){
-  try{
-    const rooms=await (await fetch('rooms')).json();
-    const el=document.getElementById('list');
-    if(!rooms.length){el.innerHTML='<div class="card empty">No speaker is connected yet.<br>Run SpeakerQueue.exe on the PC by the speaker; its room appears here within seconds.</div>';return;}
-    el.innerHTML=rooms.map(r=>'<a class="room '+(r.online?'':'off')+'" href="r/'+encodeURIComponent(r.name)+'/"><div class="dot"></div><div><div class="t">'+esc(r.name)+'</div><div class="s">'+(r.online?(r.nowPlaying?'▶ '+esc(r.nowPlaying):'online, nothing playing')+' · '+r.queue+' queued':'offline, the speaker PC is not connected')+(r.speaker?' · '+esc(r.speaker):'')+'</div></div></a>').join('');
-  }catch(e){}
-}
-load();setInterval(load,10000);
 </script></body></html>`;
 }
 
@@ -229,16 +247,49 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
 
   if (p === '/' || p === '/index.html') return html(res, 200, roomsPage());
-  if (p === '/rooms') return json(res, 200, roomList());
+  if (p === '/rooms') return json(res, 200, { rooms: rooms.size, online: roomList().filter((r) => r.online).length }); // names are private
   if (p === '/health') return json(res, 200, { ok: true, rooms: rooms.size, online: [...rooms.values()].filter((r) => r.agent).length });
+
+  // Join by code: /j/<CODE> (QR / link) or POST /join {code} (the mobile app).
+  const j = p.match(/^\/j\/([A-Za-z0-9]{4,10})\/?$/);
+  if (j) {
+    const room = roomByCode(j[1]);
+    if (!room) return html(res, 404, joinPage('', 'That join code does not match any room. Check it on the speaker PC.'));
+    res.writeHead(302, { Location: `/r/${encodeURIComponent(room.name)}/?code=${room.joinCode}` });
+    return res.end();
+  }
+  if (p === '/join') {
+    const code = req.method === 'POST' ? (await readBody(req).catch(() => ({}))).code : url.searchParams.get('code');
+    const room = roomByCode(code);
+    if (!room) return json(res, 404, { error: 'That join code does not match any room.' });
+    const li = roomList().find((r) => r.name === room.name) || {};
+    return json(res, 200, { room: room.name, code: room.joinCode, url: `${baseUrl(req)}/r/${encodeURIComponent(room.name)}/`, online: Boolean(room.agent), hostName: room.hostName || '', speaker: room.speaker || '', nowPlaying: li.nowPlaying || '' });
+  }
 
   const m = p.match(/^\/r\/([^/]+)(\/.*)?$/);
   if (!m) return json(res, 404, { error: 'not found' });
   const roomName = decodeURIComponent(m[1]);
   const room = rooms.get(roomName.toLowerCase());
-  if (!room) return html(res, 404, `<!DOCTYPE html><meta charset="utf-8"><body style="font-family:system-ui;background:#101218;color:#eee;padding:30px"><h2>Room "${esc(roomName)}" does not exist.</h2><a style="color:#4f8cff" href="/">Back to room list</a></body>`);
+  if (!room) return html(res, 404, joinPage('', `Room "${esc(roomName)}" does not exist.`));
   const rest = m[2] || '';
-  if (rest === '') { res.writeHead(302, { Location: `/r/${encodeURIComponent(room.name)}/` }); return res.end(); }
+  if (rest === '') { res.writeHead(302, { Location: `/r/${encodeURIComponent(room.name)}/${url.search}` }); return res.end(); }
+
+  // --- private room: a join code is needed (query once, then cookie; the app sends a header) ---
+  const cookieName = 'sq_' + room.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((kv) => kv.length === 2));
+  const given = url.searchParams.get('code') || req.headers['x-room-code'] || cookies[cookieName] || '';
+  const allowed = normCode(given) === room.joinCode;
+  if (url.searchParams.get('code')) {
+    if (!allowed) return html(res, 403, joinPage(room.name, 'Wrong join code for this room.'));
+    url.searchParams.delete('code');
+    res.writeHead(302, { Location: `/r/${encodeURIComponent(room.name)}${rest}${url.search}`, 'Set-Cookie': `${cookieName}=${room.joinCode}; Path=/r/${encodeURIComponent(room.name)}/; Max-Age=31536000; SameSite=Lax` });
+    return res.end();
+  }
+  if (!allowed) {
+    if (rest.startsWith('/api/')) return json(res, 401, { error: 'Join code needed for this room.', needCode: true });
+    if (rest === '/' || rest === '/player') return html(res, 401, joinPage(room.name, ''));
+    // other static files (qr.js, style.css) stay public: they are not room data
+  }
 
   // --- API relayed to the agent -------------------------------------------
   if (rest.startsWith('/api/')) {
@@ -253,7 +304,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && apiPath === '/api/share') {
       const u = `${baseUrl(req)}/r/${encodeURIComponent(room.name)}/`;
-      return json(res, 200, { hub: true, url: u, room: room.name, port: 0, hostname: room.hostName || '', hostnameUrl: u, localUrl: u, ipUrls: [{ url: u, adapter: 'online hub', virtual: false }] });
+      return json(res, 200, { hub: true, url: u, room: room.name, joinCode: room.joinCode, joinUrl: joinUrl(req, room), port: 0, hostname: room.hostName || '', hostnameUrl: u, localUrl: u, ipUrls: [{ url: u, adapter: 'online hub', virtual: false }] });
     }
     if (req.method === 'GET' && apiPath === '/api/state') {
       if (room.lastState) return json(res, 200, room.lastState);
@@ -298,7 +349,7 @@ wss.on('connection', (ws, req) => {
       const keyHash = hash(m.key || '');
       let room = rooms.get(name.toLowerCase());
       if (!room) {
-        room = { name, keyHash, agent: null, lastState: null, sse: new Set(), pending: new Map(), onlineSince: 0, createdAt: Date.now() };
+        room = { name, keyHash, agent: null, lastState: null, sse: new Set(), pending: new Map(), onlineSince: 0, createdAt: Date.now(), joinCode: newJoinCode() };
         rooms.set(name.toLowerCase(), room);
         console.log(`[room] created "${name}"`);
       } else if (room.keyHash !== keyHash) {
@@ -315,13 +366,21 @@ wss.on('connection', (ws, req) => {
       ws.isAlive = true;
       saveRooms();
       const publicUrl = `${baseUrl(req)}/r/${encodeURIComponent(room.name)}/`;
-      ws.send(JSON.stringify({ type: 'registered', room: room.name, publicUrl }));
+      ws.send(JSON.stringify({ type: 'registered', room: room.name, publicUrl, joinCode: room.joinCode, joinUrl: joinUrl(req, room) }));
       console.log(`[room] "${room.name}" online from ${room.hostName} (${req.socket.remoteAddress})`);
       return;
     }
 
     const room = ws.room;
     if (!room) return;
+    if (m.type === 'newcode') {
+      room.joinCode = newJoinCode();
+      saveRooms();
+      console.log(`[room] "${room.name}" got a new join code`);
+      const publicUrl = `${baseUrl(req)}/r/${encodeURIComponent(room.name)}/`;
+      ws.send(JSON.stringify({ type: 'registered', room: room.name, publicUrl, joinCode: room.joinCode, joinUrl: joinUrl(req, room) }));
+      return;
+    }
     if (m.type === 'event') {
       if (m.event === 'state') {
         room.lastState = m.data;

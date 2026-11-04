@@ -117,6 +117,8 @@
   details[open] summary::after { transform:rotate(-135deg); margin-bottom:-2px; }
   .host .row { margin-top:10px; flex-wrap:wrap; }
   .sect { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+  .joincode { display:flex; align-items:baseline; gap:10px; margin:2px 0 8px; }
+  .joincode b { font-family:ui-monospace,Consolas,monospace; font-size:1.7rem; letter-spacing:.22em; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
   @media (max-width:480px) { .art { width:104px; height:104px; } .np .t { font-size:1.05rem; } li.song img { width:48px; height:48px; } .ticks { padding:0 54px; } }
 </style>
 </head>
@@ -259,6 +261,7 @@
           <button id="hubSave" class="ghost">Save & connect</button>
         </div>
         <div id="hubStatus" class="msg"></div>
+        <div class="row"><button id="newCodeBtn" class="ghost">New join code</button><span class="hint">Locks out everyone who has the old code or QR.</span></div>
         <div id="hubHint" class="hint" style="margin-top:6px"></div>
       </div>
     </div>
@@ -300,11 +303,18 @@
   async function loadShare() {
     try {
       const info = await (await fetch('api/share')).json();
-      if (info.hub) {
-        // Served through the online hub: one address for everyone, from anywhere.
-        $('qr').innerHTML = window.QR ? window.QR.toSvg(info.url, 190) : '';
-        $('shareUrls').innerHTML = `<div><b>${esc(info.url)}</b> <span class="hint">(online, works from anywhere)</span></div>`;
-        $('shareNote').textContent = 'Anyone with this address can see and add to the queue for room "' + info.room + '".';
+      const codeLine = info.joinCode ? `<div class="joincode"><span class="hint">Join code</span><b>${esc(info.joinCode)}</b></div>` : '';
+      if (info.hub || info.joinUrl) {
+        // Online: the QR carries the join link, so scanning it enters the private room without typing.
+        $('qr').innerHTML = window.QR ? window.QR.toSvg(info.joinUrl || info.url, 190) : '';
+        const lines = [codeLine, `<div><b>${esc(info.joinUrl || info.url)}</b> <span class="hint">(online, works from anywhere)</span></div>`];
+        if (!info.hub) {
+          const real = info.ipUrls.filter((u) => !u.virtual);
+          const primary = (real[0] || info.ipUrls[0] || {}).url;
+          if (primary) lines.push(`<div>${esc(primary)} <span class="hint">(this Wi-Fi only)</span></div>`);
+        }
+        $('shareUrls').innerHTML = lines.join('');
+        $('shareNote').textContent = 'Room "' + (info.room || '') + '" is private: only people with this code, link or QR can see or add to the queue. In the Speaker Queue app, type the code or scan the QR.';
         return;
       }
       const real = info.ipUrls.filter((u) => !u.virtual);
@@ -520,6 +530,10 @@
       }
     } catch (e) { setMsg($('hubStatus'), e.message, 'err'); }
   };
+  $('newCodeBtn').onclick = async () => {
+    if (!confirm('Make a new join code? Everyone must use the new code or QR from now on.')) return;
+    try { await admin('newcode'); setTimeout(loadShare, 1500); hubMsgHold = Date.now() + 4000; setMsg($('hubStatus'), 'New join code requested…', 'ok'); } catch (_) { /* admin() alerts */ }
+  };
   let hubFormFilled = false;
   function renderHub() {
     const h = state.hub;
@@ -530,7 +544,7 @@
     if (pin && !document.activeElement.closest('#hostHub')) {
       let s;
       if (!h.configured) s = 'Not set up. Only this Wi-Fi can reach the queue.';
-      else if (h.connected) s = `🟢 Connected. Room page: <a href="${esc(h.publicUrl)}" target="_blank">${esc(h.publicUrl)}</a>`;
+      else if (h.connected) s = `🟢 Connected. Room page: <a href="${esc(h.publicUrl)}" target="_blank">${esc(h.publicUrl)}</a>${h.joinCode ? ' · join code <b>' + esc(h.joinCode) + '</b>' : ''}`;
       else s = '🔴 Not connected to ' + esc(h.url) + (h.lastError ? ' · ' + esc(h.lastError) : ' · retrying…');
       $('hubStatus').innerHTML = s;
       $('hubStatus').className = 'msg';

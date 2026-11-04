@@ -110,6 +110,8 @@ const state = {
     url: '',
     room: '',
     publicUrl: '',
+    joinCode: '',     // what listeners type or scan to get into this room on the hub
+    joinUrl: '',
     lastError: '',
     roomAuto: false,  // room name was generated from this PC's name
   },
@@ -817,13 +819,17 @@ const hub = {
     if (m.type === 'registered') {
       state.hub.connected = true;
       state.hub.publicUrl = m.publicUrl || '';
+      state.hub.joinCode = m.joinCode || '';
+      state.hub.joinUrl = m.joinUrl || '';
       state.hub.lastError = '';
-      console.log('[hub] connected, room page: ' + state.hub.publicUrl);
-      if (this.announced !== state.hub.publicUrl) {
-        this.announced = state.hub.publicUrl;
+      console.log('[hub] connected, room page: ' + state.hub.publicUrl + (state.hub.joinCode ? '  join code: ' + state.hub.joinCode : ''));
+      const key = state.hub.publicUrl + '|' + state.hub.joinCode;
+      if (this.announced !== key) {
+        this.announced = key;
         console.log('');
-        console.log(`  Manage it from any device: ${state.hub.publicUrl}  ->  Host controls, PIN ${ADMIN_PIN}`);
-        console.log('  Anyone with that link can add songs.' + (config.roomAuto ? ' The room is named after this PC; rename it under Online hub.' : ''));
+        console.log(`  Join code          : ${state.hub.joinCode || '(none)'}   share this, or the QR on the page; anyone with it can add songs`);
+        console.log(`  Join link          : ${state.hub.joinUrl || state.hub.publicUrl}`);
+        console.log(`  Host controls      : on that page, PIN ${ADMIN_PIN}` + (config.roomAuto ? '. The room is named after this PC; rename it under Online hub.' : ''));
         console.log('');
       }
       broadcastState();
@@ -900,6 +906,9 @@ function shareInfo() {
     hostnameUrl: `http://${host}:${PORT}`,
     localUrl: `http://${host.toLowerCase()}.local:${PORT}`,
     ipUrls: ips.map((a) => ({ url: `http://${a.address}:${PORT}`, adapter: a.name, virtual: a.virtual })),
+    joinCode: state.hub.connected ? state.hub.joinCode : '',
+    joinUrl: state.hub.connected ? state.hub.joinUrl : '',
+    room: state.hub.room,
   };
 }
 
@@ -1158,6 +1167,11 @@ async function handleApi(req, res, pathname, presetBody) {
             if (url && !ROOM_RE.test(room)) return json(res, 400, { error: 'Room name: letters, numbers, spaces, - or _ (max 40).' });
             hub.configure(url, room, key);
             return json(res, 200, { ok: true, url, room });
+          }
+          case 'newcode': {
+            if (!state.hub.connected) return json(res, 409, { error: 'Not connected to the hub.' });
+            hub.send({ type: 'newcode' });
+            return json(res, 200, { ok: true });
           }
           case 'pin': {
             if (PIN_FIXED) return json(res, 409, { error: 'The PIN is fixed by the ADMIN_PIN environment variable on the speaker PC.' });

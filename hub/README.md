@@ -40,9 +40,16 @@ headers (Caddy does it automatically: `reverse_proxy localhost:8080`).
 
 Nothing to do when the exe was built for this hub (`hub-default.json` in the
 repo root): on first start the PC joins by itself as a room named after the
-PC, with a generated key, and prints the room link. Open that link on any
-device, Host controls, PIN `1234` (change it), and rename the room under
-**Online hub** if you like. The page follows the room to its new link.
+PC, with a generated key, and prints the room's **join code** and link. Open
+that link on any device, Host controls, PIN `1234` (change it), and rename
+the room under **Online hub** if you like. The page follows the room to its
+new link.
+
+Rooms are private. The hub assigns each room a 6-character join code and
+serves the room only to visitors who present it: `?code=` once (then a
+cookie), the `X-Room-Code` header (the Android app), or the `/j/<code>` link
+in the QR. `/rooms` only reports counts. "New join code" under Online hub on
+the room page rotates it.
 
 For a hub the exe was not built for, either rebuild with
 `BUILD_HUB_URL=wss://<your-hub-host>/agent node build.js`, or set it on the
@@ -63,9 +70,11 @@ the host PIN of that PC.
 
 | Path | Purpose |
 | --- | --- |
-| `/` | room picker |
-| `/rooms` | JSON list of rooms |
-| `/r/<room>/` | queue page for a room (same page as on the LAN) |
+| `/` | front page: join-code box and instructions |
+| `/rooms` | JSON counts only (`{rooms, online}`); names are private |
+| `/j/<code>` | join link: sets the room cookie and opens the room page |
+| `/join` | `POST {code}` → `{room, code, url, online, ...}` (used by the app) |
+| `/r/<room>/` | queue page for a room (needs the join code) |
 | `/r/<room>/api/*` | relayed to the room's speaker PC |
 | `/r/<room>/api/events` | live updates (Server-Sent Events) |
 | `/agent` | WebSocket for speaker PCs |
