@@ -180,6 +180,32 @@ ${joinForm(roomName, error)}
 </div></body></html>`;
 }
 
+function privacyPage() {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Privacy policy · Speaker Queue</title><style>${PAGE_CSS}</style></head><body><div class="wrap">
+<h1>Privacy policy</h1>
+<p class="sub">Speaker Queue website and Android app</p>
+<div class="card">
+<p>Speaker Queue is a shared music queue for a Bluetooth speaker. This site relays messages between your phone or browser and the computer next to the speaker. It is run by the person who set up that computer, not by a company.</p>
+<h2>What is collected</h2>
+<ul class="muted">
+  <li><b>The name you type</b> when you join a room. It is shown next to the songs you add so the group knows who added what. It is sent to this site and to the speaker computer of the room you joined, and kept there with the queue history.</li>
+  <li><b>Song requests and votes</b> you make, with that name.</li>
+  <li><b>Room join codes and the host PIN</b>, stored only on your own device so you do not have to type them again.</li>
+  <li><b>Technical logs</b> on this site (IP address, time, request path) for a short period, as any web server keeps, used only to keep the service running.</li>
+</ul>
+<h2>What is not collected</h2>
+<p class="muted">No account, no email, no contacts, no location, no advertising identifiers, no analytics. The camera is used by the app only while you scan a room's QR code; no image leaves the phone.</p>
+<h2>Sharing</h2>
+<p class="muted">Nothing is sold or shared with third parties. The speaker computer of a room looks up the songs people request on YouTube; that request goes from that computer, not from your device.</p>
+<h2>Deleting your data</h2>
+<p class="muted">Uninstalling the app removes everything stored on your device. The host of a room can clear its queue and history from the room page. For anything else, contact the person who runs the speaker.</p>
+<h2>Changes</h2>
+<p class="muted">This page is updated if the behaviour changes. Last updated 4 November 2026.</p>
+</div>
+<p class="muted"><a href="/">Back</a></p>
+</div></body></html>`;
+}
+
 function roomsPage() {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Speaker Queue</title>
@@ -249,6 +275,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/' || p === '/index.html') return html(res, 200, roomsPage());
   if (p === '/rooms') return json(res, 200, { rooms: rooms.size, online: roomList().filter((r) => r.online).length }); // names are private
   if (p === '/health') return json(res, 200, { ok: true, rooms: rooms.size, online: [...rooms.values()].filter((r) => r.agent).length });
+  if (p === '/privacy') return html(res, 200, privacyPage());
 
   // Join by code: /j/<CODE> (QR / link) or POST /join {code} (the mobile app).
   const j = p.match(/^\/j\/([A-Za-z0-9]{4,10})\/?$/);
